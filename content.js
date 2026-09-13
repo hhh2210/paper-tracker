@@ -1,5 +1,5 @@
 /**
- * PaperTracker - Content Script
+ * PaperTracker - Content Script (Smooth 1s Ticking + Instant Mount + SPA Routing)
  * Extracts paper metadata, tracks active dwell time with idle detection,
  * and renders a sleek floating HUD pill on arXiv and alphaXiv.
  */
@@ -7,131 +7,18 @@
 (function () {
   'use strict';
 
-  // Prevent multiple injections
   if (window.__paperTrackerInjected) return;
   window.__paperTrackerInjected = true;
 
-  // Extract arXiv ID from current URL
+  // Extract arXiv ID from URL
   function extractArxivId(url) {
+    if (!url) return null;
     const match = url.match(/(?:arxiv\.org|alphaxiv\.org)\/(?:abs|pdf|html|overview)\/([a-zA-Z\-]+(?:\.[a-zA-Z]+)?\/\d{7}|\d{4}\.\d{4,5}(?:v\d+)?)/i);
     if (match && match[1]) {
       return match[1].replace(/v\d+$/, '');
     }
     return null;
   }
-
-  const currentUrl = window.location.href;
-  const paperId = extractArxivId(currentUrl);
-
-  // If not on an individual paper page, exit quietly
-  if (!paperId) {
-    return;
-  }
-
-  const source = window.location.hostname.includes('alphaxiv.org') ? 'alphaxiv' : 'arxiv';
-
-  // Extract Paper Metadata
-  function extractMetadata() {
-    let title = '';
-    let authors = '';
-
-    if (source === 'arxiv') {
-      // arXiv abs page
-      const titleEl = document.querySelector('h1.title');
-      if (titleEl) {
-        // Strip the descriptor "Title:"
-        title = titleEl.textContent.replace(/^Title:\s*/i, '').trim();
-      }
-
-      // arXiv html page
-      if (!title) {
-        const htmlTitle = document.querySelector('h1.ltx_title, .title.ltx_title');
-        if (htmlTitle) title = htmlTitle.textContent.trim();
-      }
-
-      const authorEls = document.querySelectorAll('.authors a, .ltx_authors a, .author');
-      if (authorEls.length > 0) {
-        authors = Array.from(authorEls).map(el => el.textContent.trim()).join(', ');
-      }
-    } else {
-      // alphaXiv
-      const h1 = document.querySelector('h1');
-      if (h1 && h1.textContent.trim().length > 3) {
-        title = h1.textContent.trim();
-      }
-    }
-
-    // Fallback: document.title clean up
-    if (!title || title.length < 3) {
-      let dt = document.title || '';
-      // arXiv document.title usually looks like "[2403.12345] Title Here"
-      dt = dt.replace(/^\[[^\]]+\]\s*/, '').replace(/\s*\|\s*arXiv.*$/, '').replace(/\s*\|\s*alphaXiv.*$/, '').trim();
-      if (dt && !dt.includes('arXiv.org') && !dt.includes('alphaXiv')) {
-        title = dt;
-      }
-    }
-
-    return {
-      paperId,
-      source,
-      title: title || `arXiv:${paperId}`,
-      authors: authors || '',
-      url: currentUrl
-    };
-  }
-
-  let paperMeta = extractMetadata();
-
-  // If title is missing or default, request background to resolve asynchronously
-  if (!paperMeta.title || paperMeta.title === `arXiv:${paperId}`) {
-    chrome.runtime.sendMessage({ type: 'RESOLVE_METADATA', arxivId: paperId }, (res) => {
-      if (res && res.title) {
-        paperMeta.title = res.title;
-        if (res.authors) {
-          paperMeta.authors = Array.isArray(res.authors) ? res.authors.join(', ') : res.authors;
-        }
-        updateWidgetUI();
-      }
-    });
-  }
-
-  // Active Time & Idle Detection
-  let isActive = true;
-  let lastActiveTimestamp = Date.now();
-  const IDLE_THRESHOLD_MS = 120 * 1000; // 2 minutes without user interaction
-  let sessionSeconds = 0;
-  let serverStats = {
-    todayPaperCount: 0,
-    dailyGoal: 3,
-    currentStreak: 0,
-    paperTodaySeconds: 0,
-    goalMet: false
-  };
-
-  function onUserActivity() {
-    lastActiveTimestamp = Date.now();
-    if (!isActive && document.visibilityState === 'visible') {
-      isActive = true;
-      updateWidgetStatus(true);
-    }
-  }
-
-  // Listen for user interactions to reset idle timer
-  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
-    window.addEventListener(evt, onUserActivity, { passive: true });
-  });
-
-  // Handle visibility changes
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') {
-      isActive = false;
-      updateWidgetStatus(false);
-    } else {
-      lastActiveTimestamp = Date.now();
-      isActive = true;
-      updateWidgetStatus(true);
-    }
-  });
 
   // Format seconds as MM:SS or HH:MM:SS
   function formatDuration(sec) {
@@ -145,12 +32,82 @@
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  // In-page Floating HUD Widget
+  let currentPaperId = null;
+  let currentSource = 'arxiv';
+  let paperMeta = null;
+  let sessionSeconds = 0;
+  let uncommittedSeconds = 0;
+  let isActive = true;
+  let lastActiveTimestamp = Date.now();
+  const IDLE_THRESHOLD_MS = 120 * 1000; // 2 minutes without user interaction
+
+  let serverStats = {
+    todayPaperCount: 0,
+    qualifyingCount: 0,
+    dailyGoal: 3,
+    currentStreak: 0,
+    paperTodaySeconds: 0,
+    goalMet: false
+  };
+
   let widgetContainer = null;
   let isCollapsed = false;
+  let tickerTimer = null;
 
-  function createFloatingWidget() {
-    if (document.getElementById('paper-tracker-hud')) return;
+  // Extract Paper Metadata from DOM or Document Title
+  function extractMetadata(paperId, source) {
+    let title = '';
+    let authors = '';
+
+    if (source === 'arxiv') {
+      const titleEl = document.querySelector('h1.title');
+      if (titleEl) {
+        title = titleEl.textContent.replace(/^Title:\s*/i, '').trim();
+      }
+      if (!title) {
+        const htmlTitle = document.querySelector('h1.ltx_title, .title.ltx_title');
+        if (htmlTitle) title = htmlTitle.textContent.trim();
+      }
+      const authorEls = document.querySelectorAll('.authors a, .ltx_authors a, .author');
+      if (authorEls.length > 0) {
+        authors = Array.from(authorEls).map(el => el.textContent.trim()).join(', ');
+      }
+    } else {
+      // alphaXiv
+      const h1 = document.querySelector('h1');
+      if (h1 && h1.textContent.trim().length > 3) {
+        title = h1.textContent.trim();
+      }
+    }
+
+    if (!title || title.length < 3) {
+      let dt = document.title || '';
+      dt = dt.replace(/^\[[^\]]+\]\s*/, '')
+             .replace(/\s*\|\s*arXiv.*$/i, '')
+             .replace(/\s*\|\s*alphaXiv.*$/i, '')
+             .replace(/\s*alphaXiv.*$/i, '')
+             .trim();
+      if (dt && !dt.includes('arXiv.org') && dt !== 'alphaXiv') {
+        title = dt;
+      }
+    }
+
+    return {
+      paperId,
+      source,
+      title: title || `arXiv:${paperId}`,
+      authors: authors || '',
+      url: window.location.href
+    };
+  }
+
+  // Create or retrieve floating HUD
+  function ensureFloatingWidget() {
+    if (document.getElementById('paper-tracker-hud')) {
+      widgetContainer = document.getElementById('paper-tracker-hud');
+      widgetContainer.style.display = 'block';
+      return;
+    }
 
     widgetContainer = document.createElement('div');
     widgetContainer.id = 'paper-tracker-hud';
@@ -160,7 +117,7 @@
       <div class="pt-hud-card" id="pt-hud-card">
         <div class="pt-hud-header">
           <div class="pt-hud-indicator">
-            <span class="pt-pulse-dot" id="pt-status-dot"></span>
+            <span class="pt-pulse-dot pt-active" id="pt-status-dot"></span>
             <span class="pt-brand">PaperTracker</span>
           </div>
           <div class="pt-hud-controls">
@@ -174,7 +131,7 @@
               <span class="pt-icon">⏱️</span>
               <span class="pt-timer-val" id="pt-live-timer">00:00</span>
             </div>
-            <div class="pt-depth-badge" id="pt-depth-tag">刚开始</div>
+            <div class="pt-depth-badge pt-depth-skim" id="pt-depth-tag">⚡ 扫读</div>
           </div>
 
           <div class="pt-progress-row">
@@ -187,8 +144,8 @@
             </div>
           </div>
 
-          <div class="pt-paper-info" id="pt-paper-title-text" title="${paperMeta.title}">
-            ${paperMeta.title}
+          <div class="pt-paper-info" id="pt-paper-title-text" title="">
+            加载中...
           </div>
         </div>
       </div>
@@ -196,7 +153,6 @@
 
     document.body.appendChild(widgetContainer);
 
-    // Bind event listeners for widget
     const toggleBtn = document.getElementById('pt-toggle-btn');
     const hudCard = document.getElementById('pt-hud-card');
     const hudBody = document.getElementById('pt-hud-body');
@@ -217,7 +173,6 @@
       }
     });
 
-    // Clicking header opens popup or un-collapses
     hudCard.addEventListener('click', () => {
       if (isCollapsed) {
         isCollapsed = false;
@@ -248,12 +203,11 @@
     const barEl = document.getElementById('pt-progress-bar');
     const titleEl = document.getElementById('pt-paper-title-text');
 
-    if (!timerEl) return;
+    if (!timerEl || !paperMeta) return;
 
-    const totalPaperSeconds = (serverStats.paperTodaySeconds || 0) + sessionSeconds;
+    const totalPaperSeconds = (serverStats.paperTodaySeconds || 0) + uncommittedSeconds;
     timerEl.textContent = formatDuration(totalPaperSeconds);
 
-    // Reading Depth Classification
     if (totalPaperSeconds < 120) {
       depthEl.textContent = '⚡ 扫读';
       depthEl.className = 'pt-depth-badge pt-depth-skim';
@@ -270,7 +224,7 @@
       titleEl.title = paperMeta.title;
     }
 
-    const count = serverStats.qualifyingCount || 0;
+    const count = serverStats.qualifyingCount || (totalPaperSeconds >= 30 ? 1 : 0);
     const goal = serverStats.dailyGoal || 3;
     const pct = Math.min(100, Math.round((count / goal) * 100));
 
@@ -288,30 +242,10 @@
     }
   }
 
-  // Load user settings to check if HUD is enabled
-  chrome.storage.local.get(['settings'], (res) => {
-    const settings = res.settings || {};
-    if (settings.showFloatingWidget !== false) {
-      createFloatingWidget();
-    }
-  });
+  // Send heartbeat / sync to background
+  function syncWithBackground(deltaSec) {
+    if (!paperMeta || !paperMeta.paperId) return;
 
-  // Heartbeat interval (runs every 5 seconds)
-  const HEARTBEAT_INTERVAL_SEC = 5;
-  setInterval(() => {
-    // Check if idle
-    if (Date.now() - lastActiveTimestamp > IDLE_THRESHOLD_MS) {
-      isActive = false;
-      updateWidgetStatus(false);
-    }
-
-    if (!isActive || document.visibilityState !== 'visible') {
-      return;
-    }
-
-    sessionSeconds += HEARTBEAT_INTERVAL_SEC;
-
-    // Send heartbeat to background service worker
     chrome.runtime.sendMessage(
       {
         type: 'PAPER_HEARTBEAT',
@@ -321,22 +255,155 @@
           title: paperMeta.title,
           authors: paperMeta.authors,
           url: paperMeta.url,
-          deltaSeconds: HEARTBEAT_INTERVAL_SEC
+          deltaSeconds: deltaSec
         }
       },
       (res) => {
-        if (chrome.runtime.lastError) {
-          // Extension might be reloading
-          return;
-        }
-        if (res) {
-          serverStats = res;
-          updateWidgetUI();
-        }
+        if (chrome.runtime.lastError || !res) return;
+        serverStats = res;
+        uncommittedSeconds = 0;
+        updateWidgetUI();
       }
     );
+  }
 
-    updateWidgetUI();
-  }, HEARTBEAT_INTERVAL_SEC * 1000);
+  // Initialize tracking for current paper
+  function initPaper(paperId) {
+    currentPaperId = paperId;
+    currentSource = window.location.hostname.includes('alphaxiv.org') ? 'alphaxiv' : 'arxiv';
+    paperMeta = extractMetadata(currentPaperId, currentSource);
+    sessionSeconds = 0;
+    uncommittedSeconds = 0;
+    lastActiveTimestamp = Date.now();
+    isActive = true;
+
+    // Check user preference for widget
+    chrome.storage.local.get(['settings'], (res) => {
+      const settings = res.settings || {};
+      if (settings.showFloatingWidget !== false) {
+        ensureFloatingWidget();
+        updateWidgetUI();
+      }
+    });
+
+    // Immediate initial sync (1s) so background/popup instantly have the record
+    syncWithBackground(1);
+
+    // If title is missing or default, resolve asynchronously via background
+    if (!paperMeta.title || paperMeta.title === `arXiv:${paperId}`) {
+      chrome.runtime.sendMessage({ type: 'RESOLVE_METADATA', arxivId: paperId }, (res) => {
+        if (res && res.title) {
+          paperMeta.title = res.title;
+          if (res.authors) {
+            paperMeta.authors = Array.isArray(res.authors) ? res.authors.join(', ') : res.authors;
+          }
+          updateWidgetUI();
+          syncWithBackground(0); // Update metadata in background
+        }
+      });
+    }
+
+    startSmoothTicker();
+  }
+
+  // Smooth 1-second ticker
+  function startSmoothTicker() {
+    if (tickerTimer) clearInterval(tickerTimer);
+
+    let syncCounter = 0;
+    tickerTimer = setInterval(() => {
+      // Idle check
+      if (Date.now() - lastActiveTimestamp > IDLE_THRESHOLD_MS) {
+        isActive = false;
+        updateWidgetStatus(false);
+      }
+
+      if (!isActive || document.visibilityState !== 'visible') {
+        return;
+      }
+
+      sessionSeconds += 1;
+      uncommittedSeconds += 1;
+      syncCounter += 1;
+
+      // Update UI every second for instant, silky feedback
+      updateWidgetUI();
+
+      // Sync to storage every 5 seconds
+      if (syncCounter >= 5) {
+        syncCounter = 0;
+        syncWithBackground(uncommittedSeconds);
+      }
+    }, 1000);
+  }
+
+  // User Activity Listeners
+  function onUserActivity() {
+    lastActiveTimestamp = Date.now();
+    if (!isActive && document.visibilityState === 'visible') {
+      isActive = true;
+      updateWidgetStatus(true);
+    }
+  }
+
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
+    window.addEventListener(evt, onUserActivity, { passive: true });
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') {
+      isActive = false;
+      updateWidgetStatus(false);
+      if (uncommittedSeconds > 0) {
+        syncWithBackground(uncommittedSeconds);
+      }
+    } else {
+      lastActiveTimestamp = Date.now();
+      isActive = true;
+      updateWidgetStatus(true);
+    }
+  });
+
+  // Handle SPA URL Navigation (Next.js / alphaXiv routing)
+  let lastRecordedUrl = window.location.href;
+
+  function checkRoute() {
+    const nowUrl = window.location.href;
+    if (nowUrl !== lastRecordedUrl) {
+      lastRecordedUrl = nowUrl;
+      const newId = extractArxivId(nowUrl);
+      if (newId && newId !== currentPaperId) {
+        if (uncommittedSeconds > 0) {
+          syncWithBackground(uncommittedSeconds);
+        }
+        initPaper(newId);
+      } else if (!newId) {
+        // Navigated away from a paper
+        currentPaperId = null;
+        if (widgetContainer) widgetContainer.style.display = 'none';
+        if (tickerTimer) clearInterval(tickerTimer);
+      }
+    }
+  }
+
+  // Intercept pushState & replaceState
+  const origPush = history.pushState;
+  history.pushState = function () {
+    origPush.apply(this, arguments);
+    setTimeout(checkRoute, 50);
+  };
+  const origReplace = history.replaceState;
+  history.replaceState = function () {
+    origReplace.apply(this, arguments);
+    setTimeout(checkRoute, 50);
+  };
+  window.addEventListener('popstate', () => setTimeout(checkRoute, 50));
+  setInterval(checkRoute, 1000);
+
+  // Initial check on load
+  const initialId = extractArxivId(window.location.href);
+  if (initialId) {
+    initPaper(initialId);
+  }
 
 })();

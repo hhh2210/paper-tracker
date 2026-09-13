@@ -26,7 +26,9 @@
   "content_scripts": [
     {
       "matches": [
+        "*://arxiv.org/*",
         "*://*.arxiv.org/*",
+        "*://alphaxiv.org/*",
         "*://*.alphaxiv.org/*"
       ],
       "js": ["content.js"],
@@ -40,7 +42,9 @@
     "alarms"
   ],
   "host_permissions": [
+    "*://arxiv.org/*",
     "*://*.arxiv.org/*",
+    "*://alphaxiv.org/*",
     "*://*.alphaxiv.org/*",
     "https://export.arxiv.org/*"
   ],
