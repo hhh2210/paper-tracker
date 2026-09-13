@@ -144,11 +144,25 @@ async function handlePaperHeartbeat(payload) {
   const today = getTodayDateStr();
   const now = Date.now();
 
-  const data = await getStorageData(['papers', 'daily_stats', 'streak', 'settings']);
+  const data = await getStorageData(['papers', 'daily_stats', 'streak', 'settings', 'dismissed_today']);
   const papers = data.papers || {};
   const dailyStats = data.daily_stats || {};
   const streak = data.streak || { currentStreak: 0, bestStreak: 0, lastActiveDate: null };
   const settings = data.settings || DEFAULT_SETTINGS;
+  const dismissedToday = data.dismissed_today || {};
+
+  // If paper was explicitly deleted by user today, skip tracking for today
+  if (dismissedToday[today]?.includes(paperId)) {
+    return {
+      todayPaperCount: (dailyStats[today]?.paperIds || []).length,
+      qualifyingCount: 0,
+      todaySeconds: dailyStats[today]?.totalSeconds || 0,
+      dailyGoal: settings.dailyGoal,
+      currentStreak: streak.currentStreak,
+      paperTodaySeconds: 0,
+      goalMet: false
+    };
+  }
 
   // Initialize paper entry if not present
   if (!papers[paperId]) {
@@ -308,9 +322,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const today = getTodayDateStr();
       const { paperId } = message.payload;
-      const data = await getStorageData(['papers', 'daily_stats']);
+      const data = await getStorageData(['papers', 'daily_stats', 'dismissed_today']);
       const papers = data.papers || {};
       const dailyStats = data.daily_stats || {};
+      const dismissedToday = data.dismissed_today || {};
+
+      if (!dismissedToday[today]) dismissedToday[today] = [];
+      if (!dismissedToday[today].includes(paperId)) {
+        dismissedToday[today].push(paperId);
+      }
 
       if (papers[paperId]?.history?.[today]) {
         const deducted = papers[paperId].history[today] || 0;
@@ -324,7 +344,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (dailyStats[today]) {
         dailyStats[today].paperIds = dailyStats[today].paperIds.filter(id => id !== paperId);
       }
-      await setStorageData({ papers, daily_stats: dailyStats });
+      await setStorageData({ papers, daily_stats: dailyStats, dismissed_today: dismissedToday });
       sendResponse({ success: true });
     })();
     return true;

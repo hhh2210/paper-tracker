@@ -167,17 +167,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
 
-      // Delete from today Button
-      card.querySelector('.pt-btn-card-delete').addEventListener('click', (e) => {
+      // Delete from today Button (instant smooth removal, confirm() is blocked in popups)
+      const deleteBtn = card.querySelector('.pt-btn-card-delete');
+      deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (confirm(`确定将 "${p.title.slice(0, 25)}..." 从今日记录中移除吗？`)) {
-          chrome.runtime.sendMessage({
-            type: 'DELETE_PAPER_FROM_TODAY',
-            payload: { paperId: p.id }
-          }, () => {
+        card.style.transition = 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.92)';
+
+        chrome.runtime.sendMessage({
+          type: 'DELETE_PAPER_FROM_TODAY',
+          payload: { paperId: p.id }
+        }, () => {
+          showToast(`已从今日移除：${p.title.slice(0, 18)}...`);
+          setTimeout(() => {
             loadTodayData();
-          });
-        }
+          }, 180);
+        });
       });
 
       paperStream.appendChild(card);
