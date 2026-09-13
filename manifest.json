@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "PaperTracker · 论文每日打卡 & 自动聚合",
+  "short_name": "PaperTracker",
+  "version": "1.0.0",
+  "description": "专为视觉型 & ADHD 研究者打造的论文阅读追踪器。自动监督 arXiv 与 alphaXiv 阅读时长，每日进度可视化与无痛聚合。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "PaperTracker",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.arxiv.org/*",
+        "*://*.alphaxiv.org/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms"
+  ],
+  "host_permissions": [
+    "*://*.arxiv.org/*",
+    "*://*.alphaxiv.org/*",
+    "https://export.arxiv.org/*"
+  ],
+  "options_page": "dashboard.html"
+}

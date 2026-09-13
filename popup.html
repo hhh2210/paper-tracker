@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PaperTracker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Confetti Canvas for Dopamine Celebrations -->
+  <canvas id="confetti-canvas"></canvas>
+
+  <div class="pt-container">
+    <!-- Top Bar -->
+    <header class="pt-header">
+      <div class="pt-brand">
+        <div class="pt-logo-ring">
+          <span class="pt-logo-icon">📄</span>
+        </div>
+        <div>
+          <h1 class="pt-app-title">PaperTracker</h1>
+          <p class="pt-app-sub">每日论文阅读打卡</p>
+        </div>
+      </div>
+      <div class="pt-header-actions">
+        <button id="btn-copy-digest" class="pt-btn-action" title="一键复制今日已读论文 (Markdown)">
+          <span class="pt-icon">📋</span>
+          <span class="pt-action-label">复制今日</span>
+        </button>
+        <button id="btn-open-dashboard" class="pt-btn-action" title="打开全屏统计看板">
+          <span class="pt-icon">📊</span>
+        </button>
+        <button id="btn-settings" class="pt-btn-action" title="设置">
+          <span class="pt-icon">⚙️</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Hero Dopamine Card: Goal Ring + Streak -->
+    <section class="pt-hero-card" id="hero-card">
+      <div class="pt-ring-wrapper">
+        <svg class="pt-progress-ring" width="84" height="84" viewBox="0 0 84 84">
+          <circle class="pt-ring-bg" cx="42" cy="42" r="34" stroke-width="7" />
+          <circle class="pt-ring-bar" id="goal-ring" cx="42" cy="42" r="34" stroke-width="7" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+        </svg>
+        <div class="pt-ring-inner">
+          <span class="pt-ring-num" id="ring-progress-text">0/3</span>
+          <span class="pt-ring-unit">篇</span>
+        </div>
+      </div>
+
+      <div class="pt-hero-details">
+        <div class="pt-hero-badges">
+          <div class="pt-streak-pill" id="streak-pill">
+            <span class="pt-flame">🔥</span>
+            <span id="streak-count">0 天连击</span>
+          </div>
+          <div class="pt-time-pill" id="total-time-pill">
+            <span class="pt-clock">⏱️</span>
+            <span id="today-total-time">0 分钟</span>
+          </div>
+        </div>
+        <div class="pt-hero-message" id="hero-status-message">
+          今天还没有开始看论文，先打开一篇吧！
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Modal (Inline toggled) -->
+    <div class="pt-settings-drawer" id="settings-drawer" style="display: none;">
+      <div class="pt-settings-header">
+        <span>⚙️ 偏好设置</span>
+        <button id="btn-close-settings" class="pt-close-btn">×</button>
+      </div>
+      <div class="pt-settings-item">
+        <label for="input-daily-goal">每日阅读目标 (篇)</label>
+        <div class="pt-goal-selector">
+          <button class="pt-goal-btn" data-goal="1">1</button>
+          <button class="pt-goal-btn" data-goal="2">2</button>
+          <button class="pt-goal-btn active" data-goal="3">3</button>
+          <button class="pt-goal-btn" data-goal="5">5</button>
+        </div>
+      </div>
+      <div class="pt-settings-item pt-switch-item">
+        <label for="toggle-hud">在 arXiv/alphaXiv 显示右下角计时药丸</label>
+        <input type="checkbox" id="toggle-hud" checked>
+      </div>
+    </div>
+
+    <!-- Paper Stream Header -->
+    <div class="pt-section-title">
+      <div class="pt-section-left">
+        <span class="pt-title-text">今日阅读流</span>
+        <span class="pt-count-badge" id="paper-list-count">0</span>
+      </div>
+      <div class="pt-domain-filters">
+        <span class="pt-domain-tag pt-arxiv-tag">arXiv</span>
+        <span class="pt-domain-tag pt-alphaxiv-tag">alphaXiv</span>
+      </div>
+    </div>
+
+    <!-- Paper List -->
+    <main class="pt-paper-stream" id="paper-stream">
+      <!-- Dynamically filled by popup.js -->
+    </main>
+
+    <!-- Toast Notification -->
+    <div class="pt-toast" id="pt-toast" style="display: none;">
+      <span id="toast-msg">已复制今日论文 Markdown！</span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
