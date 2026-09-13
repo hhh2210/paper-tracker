@@ -364,6 +364,12 @@
     }
   });
 
+  window.addEventListener('pagehide', () => {
+    if (uncommittedSeconds > 0) {
+      syncWithBackground(uncommittedSeconds);
+    }
+  });
+
   // Handle SPA URL Navigation (Next.js / alphaXiv routing)
   let lastRecordedUrl = window.location.href;
 

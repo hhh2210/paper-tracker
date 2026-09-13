@@ -249,11 +249,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_TODAY_DATA') {
     (async () => {
       const today = getTodayDateStr();
+      const yesterday = getYesterdayDateStr();
       const data = await getStorageData(['papers', 'daily_stats', 'streak', 'settings']);
       const stats = data.daily_stats?.[today] || { date: today, paperIds: [], totalSeconds: 0, goal: 3 };
       const settings = data.settings || DEFAULT_SETTINGS;
-      const streak = data.streak || { currentStreak: 0, bestStreak: 0 };
+      const streak = data.streak || { currentStreak: 0, bestStreak: 0, lastActiveDate: null };
       const papers = data.papers || {};
+
+      // Reset streak if gap > 1 day
+      if (streak.lastActiveDate && streak.lastActiveDate !== today && streak.lastActiveDate !== yesterday) {
+        streak.currentStreak = 0;
+      }
 
       const todayPapers = (stats.paperIds || []).map(id => {
         const p = papers[id] || {};
@@ -275,7 +281,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'GET_ALL_DATA') {
-    getStorageData(['papers', 'daily_stats', 'streak', 'settings']).then(sendResponse);
+    (async () => {
+      const data = await getStorageData(['papers', 'daily_stats', 'streak', 'settings']);
+      const today = getTodayDateStr();
+      const yesterday = getYesterdayDateStr();
+      const streak = data.streak || { currentStreak: 0, bestStreak: 0, lastActiveDate: null };
+      if (streak.lastActiveDate && streak.lastActiveDate !== today && streak.lastActiveDate !== yesterday) {
+        streak.currentStreak = 0;
+      }
+      sendResponse({ ...data, streak });
+    })();
     return true;
   }
 
@@ -297,11 +312,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const papers = data.papers || {};
       const dailyStats = data.daily_stats || {};
 
+      if (papers[paperId]?.history?.[today]) {
+        const deducted = papers[paperId].history[today] || 0;
+        if (dailyStats[today]) {
+          dailyStats[today].totalSeconds = Math.max(0, (dailyStats[today].totalSeconds || 0) - deducted);
+        }
+        papers[paperId].totalSeconds = Math.max(0, (papers[paperId].totalSeconds || 0) - deducted);
+        delete papers[paperId].history[today];
+      }
+
       if (dailyStats[today]) {
         dailyStats[today].paperIds = dailyStats[today].paperIds.filter(id => id !== paperId);
-      }
-      if (papers[paperId]?.history?.[today]) {
-        delete papers[paperId].history[today];
       }
       await setStorageData({ papers, daily_stats: dailyStats });
       sendResponse({ success: true });

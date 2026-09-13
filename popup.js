@@ -85,10 +85,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Ring stroke gradient / color
     if (count >= goal && goal > 0) {
-      goalRing.style.stroke = '#10b981';
+      goalRing.style.stroke = 'url(#ring-gradient-achieved)';
       heroCard.classList.add('pt-goal-achieved');
     } else {
-      goalRing.style.stroke = '#6366f1';
+      goalRing.style.stroke = 'url(#ring-gradient)';
       heroCard.classList.remove('pt-goal-achieved');
     }
 
@@ -280,8 +280,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('confetti-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    canvas.width = window.innerWidth || 400;
+    canvas.height = window.innerHeight || 580;
 
     const particles = [];
     const colors = ['#6366F1', '#A855F7', '#10B981', '#F59E0B', '#F43F5E', '#38BDF8'];
