@@ -1,4 +1,4 @@
-/* PaperTracker - In-Page Floating Dynamic Capsule (Apple / Raycast Craft) */
+/* PaperTracker - In-Page Floating Dynamic Capsule (Linear / Vercel Graphite Craft) */
 
 .pt-hud-container {
   position: fixed;
@@ -16,27 +16,27 @@
   gap: 8px;
   height: 36px;
   padding: 0 12px;
-  background: rgba(13, 16, 23, 0.88);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 18, 21, 0.88);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 9999px;
   box-shadow: 
-    0 8px 30px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
+    0 8px 30px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: #f4f4f5;
   cursor: pointer;
-  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pt-capsule:hover {
-  background: rgba(18, 22, 33, 0.94);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(24, 24, 28, 0.94);
+  border-color: rgba(255, 255, 255, 0.18);
   box-shadow: 
     0 12px 36px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
   transform: translateY(-1px);
 }
 
@@ -44,7 +44,7 @@
 .pt-capsule.pt-minimized {
   height: 32px;
   padding: 0 10px;
-  background: rgba(13, 16, 23, 0.82);
+  background: rgba(18, 18, 21, 0.82);
 }
 
 .pt-capsule.pt-minimized .pt-cap-status,
@@ -71,30 +71,30 @@
 
 .pt-status-dot.pt-status-active {
   background: #10b981;
-  box-shadow: 0 0 10px #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
   animation: pt-glow-pulse 2s infinite ease-in-out;
 }
 
 .pt-status-dot.pt-status-passive {
-  background: #38bdf8;
-  box-shadow: 0 0 8px #38bdf8;
+  background: #94a3b8;
+  box-shadow: 0 0 6px rgba(148, 163, 184, 0.5);
   animation: none;
 }
 
 .pt-status-dot.pt-status-idle {
   background: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
   animation: none;
 }
 
 @keyframes pt-glow-pulse {
   0% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
   }
   70% {
     transform: scale(1.15);
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0);
   }
   100% {
     transform: scale(0.95);
@@ -105,7 +105,7 @@
 .pt-status-label {
   font-size: 11px;
   font-weight: 600;
-  color: #94a3b8;
+  color: #a1a1aa;
   letter-spacing: -0.1px;
 }
 
@@ -113,7 +113,7 @@
 .pt-cap-divider {
   width: 1px;
   height: 12px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Timer display */
@@ -122,7 +122,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.3px;
-  color: #f8fafc;
+  color: #f4f4f5;
 }
 
 /* Depth Badges */
@@ -137,21 +137,21 @@
 }
 
 .pt-depth-skim {
-  background: rgba(245, 158, 11, 0.12);
+  background: rgba(245, 158, 11, 0.08);
   color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .pt-depth-read {
-  background: rgba(56, 189, 248, 0.12);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .pt-depth-deep {
-  background: rgba(168, 85, 247, 0.14);
+  background: rgba(168, 85, 247, 0.1);
   color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.28);
+  border: 1px solid rgba(168, 85, 247, 0.22);
 }
 
 /* Daily Goal / Flame badge */
@@ -160,7 +160,7 @@
   align-items: center;
   gap: 3px;
   font-size: 11px;
-  color: #cbd5e1;
+  color: #a1a1aa;
 }
 
 .pt-cap-flame {
@@ -180,7 +180,7 @@
 .pt-cap-toggle-btn {
   background: transparent;
   border: none;
-  color: #64748b;
+  color: #71717a;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -192,15 +192,15 @@
 }
 
 .pt-cap-toggle-btn:hover {
-  color: #cbd5e1;
+  color: #f4f4f5;
 }
 
 /* State-specific outline styling */
 .pt-capsule.pt-state-passive {
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .pt-capsule.pt-state-idle {
-  border-color: rgba(245, 158, 11, 0.3);
+  border-color: rgba(245, 158, 11, 0.25);
   opacity: 0.85;
 }
