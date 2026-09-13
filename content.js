@@ -358,9 +358,13 @@
     }, 1000);
   }
 
-  // User Activity Listeners
+  // User Activity Listeners (Throttled to 500ms to eliminate event loop overhead on scroll/mousemove)
+  let lastActivityThrottle = 0;
   function onUserActivity() {
-    lastActiveTimestamp = Date.now();
+    const now = Date.now();
+    if (now - lastActivityThrottle < 500) return;
+    lastActivityThrottle = now;
+    lastActiveTimestamp = now;
     if (!isActive && document.visibilityState === 'visible') {
       isActive = true;
       updateWidgetStatus(true);
@@ -382,6 +386,7 @@
       lastActiveTimestamp = Date.now();
       isActive = true;
       updateWidgetStatus(true);
+      checkRoute();
     }
   });
 
@@ -395,6 +400,7 @@
   let lastRecordedUrl = window.location.href;
 
   function checkRoute() {
+    if (document.visibilityState !== 'visible') return;
     const nowUrl = window.location.href;
     if (nowUrl !== lastRecordedUrl) {
       lastRecordedUrl = nowUrl;
@@ -425,7 +431,7 @@
     setTimeout(checkRoute, 50);
   };
   window.addEventListener('popstate', () => setTimeout(checkRoute, 50));
-  setInterval(checkRoute, 1000);
+  setInterval(checkRoute, 2000);
 
   // Initial check on load
   const initialId = extractArxivId(window.location.href);

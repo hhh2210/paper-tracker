@@ -105,6 +105,16 @@ function getSourceFromUrl(url) {
 // Resolve metadata from arXiv abstract page
 async function resolvePaperMetadata(arxivId) {
   try {
+    // Check local cache first to save network bandwidth and avoid HTML parsing in memory
+    const stored = await getStorageData(['papers']);
+    if (stored.papers && stored.papers[arxivId] && stored.papers[arxivId].title && !stored.papers[arxivId].title.startsWith('arXiv:')) {
+      return {
+        title: stored.papers[arxivId].title,
+        authors: stored.papers[arxivId].authors || ['arXiv Paper'],
+        summary: stored.papers[arxivId].summary || ''
+      };
+    }
+
     const res = await fetch(`https://arxiv.org/abs/${arxivId}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const html = await res.text();
