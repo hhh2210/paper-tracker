@@ -101,7 +101,15 @@
     };
   }
 
-  // Create or retrieve floating HUD
+  // Google Page Lifecycle State Machine
+  // Active: focused + pointer inside (threshold: idleThresholdMs, default 120s)
+  // Passive: blurred or pointer outside (threshold: PASSIVE_IDLE_THRESHOLD_MS, 30s)
+  // Idle: timeout exceeded in either state
+  const PASSIVE_IDLE_THRESHOLD_MS = 30 * 1000;
+  let lifecycleState = 'active'; // 'active' | 'passive' | 'idle' | 'hidden'
+  let isPointerInside = true;
+
+  // Create or retrieve floating Dynamic Capsule HUD
   function ensureFloatingWidget() {
     if (document.getElementById('paper-tracker-hud')) {
       widgetContainer = document.getElementById('paper-tracker-hud');
@@ -114,94 +122,112 @@
     widgetContainer.className = 'pt-hud-container';
 
     widgetContainer.innerHTML = `
-      <div class="pt-hud-card" id="pt-hud-card">
-        <div class="pt-hud-header">
-          <div class="pt-hud-indicator">
-            <span class="pt-pulse-dot pt-active" id="pt-status-dot"></span>
-            <span class="pt-brand">PaperTracker</span>
-          </div>
-          <div class="pt-hud-controls">
-            <button class="pt-btn-icon" id="pt-toggle-btn" title="收起 / 展开">−</button>
-          </div>
+      <div class="pt-capsule" id="pt-capsule">
+        <div class="pt-cap-status" id="pt-cap-status" title="Google Page Lifecycle 状态">
+          <span class="pt-status-dot pt-status-active" id="pt-status-dot"></span>
+          <span class="pt-status-label" id="pt-status-label">深度阅读</span>
         </div>
-
-        <div class="pt-hud-body" id="pt-hud-body">
-          <div class="pt-hud-timer-row">
-            <div class="pt-timer-display">
-              <span class="pt-icon">⏱️</span>
-              <span class="pt-timer-val" id="pt-live-timer">00:00</span>
-            </div>
-            <div class="pt-depth-badge pt-depth-skim" id="pt-depth-tag">⚡ 扫读</div>
-          </div>
-
-          <div class="pt-progress-row">
-            <div class="pt-progress-text">
-              <span id="pt-goal-status">今日进度 0/3 篇</span>
-              <span class="pt-streak-text" id="pt-streak-tag">🔥 0 天</span>
-            </div>
-            <div class="pt-progress-bar-bg">
-              <div class="pt-progress-bar-fill" id="pt-progress-bar" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <div class="pt-paper-info" id="pt-paper-title-text" title="">
-            加载中...
-          </div>
+        <div class="pt-cap-divider"></div>
+        <div class="pt-cap-timer" id="pt-live-timer">00:00</div>
+        <div class="pt-cap-divider"></div>
+        <div class="pt-cap-depth pt-depth-skim" id="pt-depth-tag">⚡ 扫读</div>
+        <div class="pt-cap-divider"></div>
+        <div class="pt-cap-goal" id="pt-cap-goal" title="今日阅读目标进度">
+          <span class="pt-cap-flame">🔥</span>
+          <span class="pt-cap-goal-text" id="pt-goal-fraction">0/3</span>
         </div>
+        <button class="pt-cap-toggle-btn" id="pt-toggle-btn" title="收起 / 展开">−</button>
       </div>
     `;
 
     document.body.appendChild(widgetContainer);
 
     const toggleBtn = document.getElementById('pt-toggle-btn');
-    const hudCard = document.getElementById('pt-hud-card');
-    const hudBody = document.getElementById('pt-hud-body');
+    const capsule = document.getElementById('pt-capsule');
 
     toggleBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       isCollapsed = !isCollapsed;
       if (isCollapsed) {
-        hudCard.classList.add('pt-collapsed');
-        hudBody.style.display = 'none';
+        capsule.classList.add('pt-minimized');
         toggleBtn.textContent = '+';
         toggleBtn.title = '展开';
       } else {
-        hudCard.classList.remove('pt-collapsed');
-        hudBody.style.display = 'block';
+        capsule.classList.remove('pt-minimized');
         toggleBtn.textContent = '−';
         toggleBtn.title = '收起';
       }
     });
 
-    hudCard.addEventListener('click', () => {
+    capsule.addEventListener('click', () => {
       if (isCollapsed) {
         isCollapsed = false;
-        hudCard.classList.remove('pt-collapsed');
-        hudBody.style.display = 'block';
+        capsule.classList.remove('pt-minimized');
         toggleBtn.textContent = '−';
+        toggleBtn.title = '收起';
       }
     });
   }
 
-  function updateWidgetStatus(active) {
-    const dot = document.getElementById('pt-status-dot');
-    if (!dot) return;
-    if (active) {
-      dot.className = 'pt-pulse-dot pt-active';
-      dot.title = '正在专注计时中';
+  function evaluateLifecycleState() {
+    if (document.visibilityState !== 'visible') {
+      return 'hidden';
+    }
+    const now = Date.now();
+    const elapsed = now - lastActiveTimestamp;
+    const isDocFocused = document.hasFocus();
+
+    if (isDocFocused && isPointerInside) {
+      if (elapsed > idleThresholdMs) {
+        return 'idle';
+      }
+      return 'active';
     } else {
-      dot.className = 'pt-pulse-dot pt-idle';
-      dot.title = '已暂停（未聚焦或无操作）';
+      if (elapsed > PASSIVE_IDLE_THRESHOLD_MS) {
+        return 'idle';
+      }
+      return 'passive';
+    }
+  }
+
+  function updateLifecycleUI() {
+    const dot = document.getElementById('pt-status-dot');
+    const label = document.getElementById('pt-status-label');
+    const capsule = document.getElementById('pt-capsule');
+    if (!dot || !label) return;
+
+    dot.className = 'pt-status-dot';
+
+    if (lifecycleState === 'active') {
+      dot.classList.add('pt-status-active');
+      label.textContent = '深度阅读';
+      label.title = '当前聚焦在论文中 (容差 120 秒)';
+      if (capsule) {
+        capsule.classList.remove('pt-state-idle', 'pt-state-passive');
+      }
+    } else if (lifecycleState === 'passive') {
+      dot.classList.add('pt-status-passive');
+      label.textContent = '伴读中';
+      label.title = '分屏做笔记或查词中 (容差 30 秒)';
+      if (capsule) {
+        capsule.classList.remove('pt-state-idle');
+        capsule.classList.add('pt-state-passive');
+      }
+    } else {
+      dot.classList.add('pt-status-idle');
+      label.textContent = '已暂离';
+      label.title = '长时间无操作已暂停计时，移动鼠标或按键恢复';
+      if (capsule) {
+        capsule.classList.remove('pt-state-passive');
+        capsule.classList.add('pt-state-idle');
+      }
     }
   }
 
   function updateWidgetUI() {
     const timerEl = document.getElementById('pt-live-timer');
     const depthEl = document.getElementById('pt-depth-tag');
-    const goalEl = document.getElementById('pt-goal-status');
-    const streakEl = document.getElementById('pt-streak-tag');
-    const barEl = document.getElementById('pt-progress-bar');
-    const titleEl = document.getElementById('pt-paper-title-text');
+    const goalFractionEl = document.getElementById('pt-goal-fraction');
 
     if (!timerEl || !paperMeta) return;
 
@@ -210,35 +236,22 @@
 
     if (totalPaperSeconds < 120) {
       depthEl.textContent = '⚡ 扫读';
-      depthEl.className = 'pt-depth-badge pt-depth-skim';
+      depthEl.className = 'pt-cap-depth pt-depth-skim';
     } else if (totalPaperSeconds < 600) {
       depthEl.textContent = '📖 细读';
-      depthEl.className = 'pt-depth-badge pt-depth-read';
+      depthEl.className = 'pt-cap-depth pt-depth-read';
     } else {
       depthEl.textContent = '🧠 精读';
-      depthEl.className = 'pt-depth-badge pt-depth-deep';
-    }
-
-    if (titleEl) {
-      titleEl.textContent = paperMeta.title;
-      titleEl.title = paperMeta.title;
+      depthEl.className = 'pt-cap-depth pt-depth-deep';
     }
 
     const count = serverStats.qualifyingCount || (totalPaperSeconds >= 30 ? 1 : 0);
     const goal = serverStats.dailyGoal || 3;
-    const pct = Math.min(100, Math.round((count / goal) * 100));
-
-    if (goalEl) {
-      goalEl.textContent = serverStats.goalMet ? `🎉 目标已达成 (${count}/${goal})` : `今日进度 ${count}/${goal} 篇`;
-    }
-    if (barEl) {
-      barEl.style.width = `${pct}%`;
+    if (goalFractionEl) {
+      goalFractionEl.textContent = `${count}/${goal}`;
       if (serverStats.goalMet) {
-        barEl.classList.add('pt-goal-completed');
+        goalFractionEl.parentElement.classList.add('pt-goal-achieved');
       }
-    }
-    if (streakEl) {
-      streakEl.textContent = `🔥 ${serverStats.currentStreak || 0} 天`;
     }
   }
 
@@ -328,19 +341,16 @@
     startSmoothTicker();
   }
 
-  // Smooth 1-second ticker
+  // Smooth 1-second ticker driven by Google Page Lifecycle state machine
   function startSmoothTicker() {
     if (tickerTimer) clearInterval(tickerTimer);
 
     let syncCounter = 0;
     tickerTimer = setInterval(() => {
-      // Idle check
-      if (Date.now() - lastActiveTimestamp > idleThresholdMs) {
-        isActive = false;
-        updateWidgetStatus(false);
-      }
+      lifecycleState = evaluateLifecycleState();
+      updateLifecycleUI();
 
-      if (!isActive || document.visibilityState !== 'visible') {
+      if (lifecycleState === 'idle' || document.visibilityState !== 'visible') {
         return;
       }
 
@@ -365,9 +375,12 @@
     if (now - lastActivityThrottle < 500) return;
     lastActivityThrottle = now;
     lastActiveTimestamp = now;
-    if (!isActive && document.visibilityState === 'visible') {
-      isActive = true;
-      updateWidgetStatus(true);
+    isPointerInside = true;
+
+    const prev = lifecycleState;
+    lifecycleState = evaluateLifecycleState();
+    if (prev !== lifecycleState) {
+      updateLifecycleUI();
     }
   }
 
@@ -375,17 +388,45 @@
     window.addEventListener(evt, onUserActivity, { passive: true });
   });
 
+  // Pointer presence (Google Page Lifecycle standard)
+  document.addEventListener('mouseenter', () => {
+    isPointerInside = true;
+    lastActiveTimestamp = Date.now();
+    lifecycleState = evaluateLifecycleState();
+    updateLifecycleUI();
+  });
+
+  document.addEventListener('mouseleave', () => {
+    isPointerInside = false;
+    lifecycleState = evaluateLifecycleState();
+    updateLifecycleUI();
+  });
+
+  // Window Focus / Blur (Google Page Lifecycle: Active vs Passive)
+  window.addEventListener('focus', () => {
+    lastActiveTimestamp = Date.now();
+    isPointerInside = true;
+    lifecycleState = evaluateLifecycleState();
+    updateLifecycleUI();
+  });
+
+  window.addEventListener('blur', () => {
+    lifecycleState = evaluateLifecycleState();
+    updateLifecycleUI();
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') {
-      isActive = false;
-      updateWidgetStatus(false);
+      lifecycleState = 'hidden';
+      updateLifecycleUI();
       if (uncommittedSeconds > 0) {
         syncWithBackground(uncommittedSeconds);
       }
     } else {
       lastActiveTimestamp = Date.now();
-      isActive = true;
-      updateWidgetStatus(true);
+      isPointerInside = true;
+      lifecycleState = evaluateLifecycleState();
+      updateLifecycleUI();
       checkRoute();
     }
   });

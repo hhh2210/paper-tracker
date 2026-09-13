@@ -166,7 +166,9 @@ document.addEventListener('DOMContentLoaded', () => {
             </a>
           </div>
           <div class="pt-card-actions">
-            <button class="pt-btn-card-action pt-btn-copy-link" data-id="${p.id}" title="复制 Markdown 链接">📋</button>
+            <button class="pt-btn-card-action pt-btn-copy-link" data-id="${p.id}" title="复制 Markdown 链接">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
             <button class="pt-btn-card-action pt-btn-card-delete" data-id="${p.id}" title="从今日移除此记录">✕</button>
           </div>
         </div>
