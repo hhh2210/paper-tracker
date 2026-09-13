@@ -35,6 +35,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2200);
   }
 
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[PaperTracker] navigator.clipboard failed, using fallback:', err);
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (success) return true;
+    } catch (err) {
+      console.error('[PaperTracker] copy fallback failed:', err);
+    }
+    return false;
+  }
+
   function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -159,12 +186,15 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
 
       // Copy Markdown Link Button
-      card.querySelector('.pt-btn-copy-link').addEventListener('click', (e) => {
+      card.querySelector('.pt-btn-copy-link').addEventListener('click', async (e) => {
         e.stopPropagation();
         const md = `[${p.title}](${p.url || `https://arxiv.org/abs/${p.id}`})`;
-        navigator.clipboard.writeText(md).then(() => {
+        const ok = await copyToClipboard(md);
+        if (ok) {
           showToast(`已复制：${p.title.slice(0, 20)}...`);
-        });
+        } else {
+          showToast('复制失败，请重试');
+        }
       });
 
       // Delete from today Button (instant smooth removal, confirm() is blocked in popups)
@@ -179,6 +209,9 @@ document.addEventListener('DOMContentLoaded', () => {
           type: 'DELETE_PAPER_FROM_TODAY',
           payload: { paperId: p.id }
         }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn('[PaperTracker] delete error:', chrome.runtime.lastError);
+          }
           showToast(`已从今日移除：${p.title.slice(0, 18)}...`);
           setTimeout(() => {
             loadTodayData();
@@ -198,7 +231,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function loadTodayData() {
     chrome.runtime.sendMessage({ type: 'GET_TODAY_DATA' }, (res) => {
-      if (chrome.runtime.lastError || !res) return;
+      if (chrome.runtime.lastError) {
+        console.warn('[PaperTracker] loadTodayData error:', chrome.runtime.lastError);
+        return;
+      }
+      if (!res) return;
       renderData(res);
       // Sync settings drawer state
       if (res.settings) {
@@ -211,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Copy Digest Button (Markdown)
-  btnCopyDigest.addEventListener('click', () => {
+  btnCopyDigest.addEventListener('click', async () => {
     if (!todayData || !todayData.papers || todayData.papers.length === 0) {
       showToast('今日还没有已读论文记录可复制');
       return;
@@ -235,16 +272,21 @@ document.addEventListener('DOMContentLoaded', () => {
       md += `\n`;
     });
 
-    navigator.clipboard.writeText(md).then(() => {
+    const ok = await copyToClipboard(md);
+    if (ok) {
       showToast('📋 已复制今日论文 Digest (Markdown)！');
-    }).catch(() => {
+    } else {
       showToast('复制失败，请重试');
-    });
+    }
   });
 
-  // Open Dashboard Button
+  // Open Dashboard Button (reuse existing options tab if open, otherwise create tab)
   btnOpenDashboard.addEventListener('click', () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+    if (chrome.runtime.openOptionsPage) {
+      chrome.runtime.openOptionsPage();
+    } else {
+      chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+    }
   });
 
   // Settings Drawer Toggle
@@ -268,6 +310,9 @@ document.addEventListener('DOMContentLoaded', () => {
         type: 'UPDATE_SETTINGS',
         payload: { dailyGoal: newGoal }
       }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('[PaperTracker] updateSettings error:', chrome.runtime.lastError);
+        }
         loadTodayData();
       });
     });
@@ -278,6 +323,10 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendMessage({
       type: 'UPDATE_SETTINGS',
       payload: { showFloatingWidget: toggleHud.checked }
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('[PaperTracker] updateSettings error:', chrome.runtime.lastError);
+      }
     });
   });
 

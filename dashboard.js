@@ -28,6 +28,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2500);
   }
 
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[PaperTracker] navigator.clipboard failed, using fallback:', err);
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (success) return true;
+    } catch (err) {
+      console.error('[PaperTracker] copy fallback failed:', err);
+    }
+    return false;
+  }
+
   function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -157,11 +184,14 @@ document.addEventListener('DOMContentLoaded', () => {
         </td>
       `;
 
-      tr.querySelector('.btn-copy').addEventListener('click', () => {
+      tr.querySelector('.btn-copy').addEventListener('click', async () => {
         const md = `[${p.title}](${p.url || `https://arxiv.org/abs/${p.id}`})`;
-        navigator.clipboard.writeText(md).then(() => {
+        const ok = await copyToClipboard(md);
+        if (ok) {
           showToast(`已复制：${p.title.slice(0, 20)}...`);
-        });
+        } else {
+          showToast('复制失败，请重试');
+        }
       });
 
       papersTableBody.appendChild(tr);
@@ -170,7 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function loadData() {
     chrome.runtime.sendMessage({ type: 'GET_ALL_DATA' }, (res) => {
-      if (chrome.runtime.lastError || !res) return;
+      if (chrome.runtime.lastError) {
+        console.warn('[PaperTracker] loadData error:', chrome.runtime.lastError);
+        return;
+      }
+      if (!res) return;
       allPapers = Object.values(res.papers || {}).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
       allDailyStats = res.daily_stats || {};
       streakInfo = res.streak || {};
@@ -186,7 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
   filterSource.addEventListener('change', renderTable);
 
   // Export Full Markdown
-  btnExportMarkdown.addEventListener('click', () => {
+  btnExportMarkdown.addEventListener('click', async () => {
     if (allPapers.length === 0) {
       showToast('暂无论文记录可导出');
       return;
@@ -203,14 +237,21 @@ document.addEventListener('DOMContentLoaded', () => {
       md += `| ${p.source} | \`${p.id}\` | [${p.title.replace(/\|/g, '\\|')}](${p.url || `https://arxiv.org/abs/${p.id}`}) | ${formatPreciseTime(p.totalSeconds || 0)} | ${depth} | ${firstDate} |\n`;
     });
 
-    navigator.clipboard.writeText(md).then(() => {
+    const ok = await copyToClipboard(md);
+    if (ok) {
       showToast('📋 全量 Markdown 已复制到剪贴板！');
-    });
+    } else {
+      showToast('复制失败，请重试');
+    }
   });
 
   // Export JSON Backup
   btnExportJson.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'GET_ALL_DATA' }, (data) => {
+      if (chrome.runtime.lastError || !data) {
+        showToast('导出失败：无法读取数据');
+        return;
+      }
       const jsonStr = JSON.stringify(data, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

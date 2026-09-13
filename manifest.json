@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PaperTracker · 论文每日打卡 & 自动聚合",
   "short_name": "PaperTracker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "专为视觉型 & ADHD 研究者打造的论文阅读追踪器。自动监督 arXiv 与 alphaXiv 阅读时长，每日进度可视化与无痛聚合。",
   "icons": {
     "16": "icons/icon16.png",
@@ -39,7 +39,9 @@
   "permissions": [
     "storage",
     "tabs",
-    "alarms"
+    "alarms",
+    "clipboardWrite",
+    "idle"
   ],
   "host_permissions": [
     "*://arxiv.org/*",
@@ -48,5 +50,8 @@
     "*://*.alphaxiv.org/*",
     "https://export.arxiv.org/*"
   ],
-  "options_page": "dashboard.html"
+  "options_ui": {
+    "page": "dashboard.html",
+    "open_in_tab": true
+  }
 }

@@ -1,5 +1,5 @@
 /**
- * PaperTracker - Content Script (Smooth 1s Ticking + Instant Mount + SPA Routing)
+ * PaperTracker - Content Script (MV3 Robustness, Double-Count Prevention, SPA Routing)
  * Extracts paper metadata, tracks active dwell time with idle detection,
  * and renders a sleek floating HUD pill on arXiv and alphaXiv.
  */
@@ -39,7 +39,7 @@
   let uncommittedSeconds = 0;
   let isActive = true;
   let lastActiveTimestamp = Date.now();
-  const IDLE_THRESHOLD_MS = 120 * 1000; // 2 minutes without user interaction
+  let idleThresholdMs = 120 * 1000; // default 2 minutes
 
   let serverStats = {
     todayPaperCount: 0,
@@ -242,29 +242,42 @@
     }
   }
 
-  // Send heartbeat / sync to background
+  // Send heartbeat / sync to background (synchronous deduction prevents double counting)
   function syncWithBackground(deltaSec) {
     if (!paperMeta || !paperMeta.paperId) return;
+    const safeDelta = Math.max(0, Math.round(Number(deltaSec) || 0));
+    if (safeDelta === 0 && deltaSec !== 0) return;
 
-    chrome.runtime.sendMessage(
-      {
-        type: 'PAPER_HEARTBEAT',
-        payload: {
-          paperId: paperMeta.paperId,
-          source: paperMeta.source,
-          title: paperMeta.title,
-          authors: paperMeta.authors,
-          url: paperMeta.url,
-          deltaSeconds: deltaSec
+    // Deduct immediately to prevent double counting if visibilitychange and pagehide fire consecutively
+    uncommittedSeconds = Math.max(0, uncommittedSeconds - safeDelta);
+
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: 'PAPER_HEARTBEAT',
+          payload: {
+            paperId: paperMeta.paperId,
+            source: paperMeta.source,
+            title: paperMeta.title,
+            authors: paperMeta.authors,
+            url: paperMeta.url,
+            deltaSeconds: safeDelta
+          }
+        },
+        (res) => {
+          if (chrome.runtime.lastError || !res || !res.success) {
+            // Restore uncommittedSeconds if message was not received
+            uncommittedSeconds += safeDelta;
+            return;
+          }
+          serverStats = res;
+          updateWidgetUI();
         }
-      },
-      (res) => {
-        if (chrome.runtime.lastError || !res) return;
-        serverStats = res;
-        uncommittedSeconds = 0;
-        updateWidgetUI();
-      }
-    );
+      );
+    } catch (err) {
+      // Restore in case context was invalidated
+      uncommittedSeconds += safeDelta;
+    }
   }
 
   // Initialize tracking for current paper
@@ -277,9 +290,13 @@
     lastActiveTimestamp = Date.now();
     isActive = true;
 
-    // Check user preference for widget
+    // Check user preference for widget and idle setting
     chrome.storage.local.get(['settings'], (res) => {
-      const settings = res.settings || {};
+      if (chrome.runtime.lastError) return;
+      const settings = res?.settings || {};
+      if (settings.idleTimeoutSeconds) {
+        idleThresholdMs = settings.idleTimeoutSeconds * 1000;
+      }
       if (settings.showFloatingWidget !== false) {
         ensureFloatingWidget();
         updateWidgetUI();
@@ -291,16 +308,21 @@
 
     // If title is missing or default, resolve asynchronously via background
     if (!paperMeta.title || paperMeta.title === `arXiv:${paperId}`) {
-      chrome.runtime.sendMessage({ type: 'RESOLVE_METADATA', arxivId: paperId }, (res) => {
-        if (res && res.title) {
-          paperMeta.title = res.title;
-          if (res.authors) {
-            paperMeta.authors = Array.isArray(res.authors) ? res.authors.join(', ') : res.authors;
+      try {
+        chrome.runtime.sendMessage({ type: 'RESOLVE_METADATA', arxivId: paperId }, (res) => {
+          if (chrome.runtime.lastError || !res) return;
+          if (res.title) {
+            paperMeta.title = res.title;
+            if (res.authors) {
+              paperMeta.authors = Array.isArray(res.authors) ? res.authors.join(', ') : res.authors;
+            }
+            updateWidgetUI();
+            syncWithBackground(0); // Update metadata in background
           }
-          updateWidgetUI();
-          syncWithBackground(0); // Update metadata in background
-        }
-      });
+        });
+      } catch (e) {
+        // ignore
+      }
     }
 
     startSmoothTicker();
@@ -313,7 +335,7 @@
     let syncCounter = 0;
     tickerTimer = setInterval(() => {
       // Idle check
-      if (Date.now() - lastActiveTimestamp > IDLE_THRESHOLD_MS) {
+      if (Date.now() - lastActiveTimestamp > idleThresholdMs) {
         isActive = false;
         updateWidgetStatus(false);
       }
@@ -326,7 +348,6 @@
       uncommittedSeconds += 1;
       syncCounter += 1;
 
-      // Update UI every second for instant, silky feedback
       updateWidgetUI();
 
       // Sync to storage every 5 seconds
