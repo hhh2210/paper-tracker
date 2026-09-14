@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
   feishuWebhook: '',
   feishuAppId: 'cli_a926b95fa9f8dbd1',
   feishuAppSecret: '',
-  feishuReceiverId: 'ou_162e0eaf2ed84e4421c57d0daf9de348'
+  feishuReceiverId: 'oc_1bb8c1886fa5e5b84ce160c0bba935bc'
 };
 
 // Storage Mutex Queue to prevent race conditions during concurrent tab updates
@@ -661,7 +661,10 @@ async function sendReadingListToFeishu(payload = {}) {
         today
       });
 
-  const receiverId = settings.feishuReceiverId?.trim() || 'ou_162e0eaf2ed84e4421c57d0daf9de348';
+  const receiverId = payload.receiverId?.trim() || settings.feishuReceiverId?.trim() || 'oc_1bb8c1886fa5e5b84ce160c0bba935bc';
+  if (payload.receiverId && payload.receiverId.trim() !== settings.feishuReceiverId) {
+    setStorageData({ settings: { ...settings, feishuReceiverId: payload.receiverId.trim() } });
+  }
 
   // 1. Tier 1 Priority: Try Local Lark CLI Bridge (http://127.0.0.1:18288)
   try {

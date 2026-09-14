@@ -290,8 +290,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (inputFeishuSecret && res.settings.feishuAppSecret !== undefined) {
           inputFeishuSecret.value = res.settings.feishuAppSecret;
         }
-        if (inputFeishuReceiver && res.settings.feishuReceiverId !== undefined) {
-          inputFeishuReceiver.value = res.settings.feishuReceiverId;
+        if (inputFeishuReceiver) {
+          inputFeishuReceiver.value = res.settings.feishuReceiverId || 'oc_1bb8c1886fa5e5b84ce160c0bba935bc';
         }
       }
     });
@@ -469,7 +469,12 @@ document.addEventListener('DOMContentLoaded', () => {
         <span>正在同步...</span>
       `;
 
-      chrome.runtime.sendMessage({ type: 'SEND_TO_FEISHU' }, (res) => {
+      const targetReceiverId = (inputFeishuReceiver && inputFeishuReceiver.value.trim()) || 'oc_1bb8c1886fa5e5b84ce160c0bba935bc';
+
+      chrome.runtime.sendMessage({
+        type: 'SEND_TO_FEISHU',
+        payload: { receiverId: targetReceiverId }
+      }, (res) => {
         if (chrome.runtime.lastError) {
           btnSendFeishu.className = 'pt-btn-action pt-btn-feishu pt-btn-error pt-btn-shake';
           btnSendFeishu.innerHTML = `<span>同步失败</span>`;
@@ -506,6 +511,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Auto-persist receiver ID on change
+  if (inputFeishuReceiver) {
+    inputFeishuReceiver.addEventListener('change', () => {
+      const val = inputFeishuReceiver.value.trim();
+      if (val) {
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_SETTINGS',
+          payload: { feishuReceiverId: val }
+        });
+      }
+    });
+  }
+
   // Test Feishu Push Button (in Settings Drawer)
   if (btnTestFeishu) {
     btnTestFeishu.addEventListener('click', () => {
@@ -513,9 +531,11 @@ document.addEventListener('DOMContentLoaded', () => {
       btnTestFeishu.disabled = true;
       btnTestFeishu.textContent = '测试中...';
 
+      const targetReceiverId = (inputFeishuReceiver && inputFeishuReceiver.value.trim()) || 'oc_1bb8c1886fa5e5b84ce160c0bba935bc';
+
       chrome.runtime.sendMessage({
         type: 'SEND_TO_FEISHU',
-        payload: { isTest: true }
+        payload: { isTest: true, receiverId: targetReceiverId }
       }, (res) => {
         btnTestFeishu.disabled = false;
         btnTestFeishu.textContent = origText;
