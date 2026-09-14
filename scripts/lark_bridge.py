@@ -21,6 +21,12 @@ HOST = "127.0.0.1"
 LARK_CLI = shutil.which("lark-cli") or "/opt/homebrew/bin/lark-cli"
 
 class LarkBridgeHandler(http.server.BaseHTTPRequestHandler):
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def log_message(self, format, *args):
         # Silence default stderr logging, print clean timestamped log
         sys.stdout.write(f"[PaperTracker Bridge] {self.address_string()} - {format % args}\n")
