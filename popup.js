@@ -17,22 +17,42 @@ document.addEventListener('DOMContentLoaded', () => {
   const paperListCount = document.getElementById('paper-list-count');
   const btnCopyDigest = document.getElementById('btn-copy-digest');
   const btnOpenDashboard = document.getElementById('btn-open-dashboard');
+  const btnSendFeishu = document.getElementById('btn-send-feishu');
   const btnSettings = document.getElementById('btn-settings');
   const settingsDrawer = document.getElementById('settings-drawer');
   const btnCloseSettings = document.getElementById('btn-close-settings');
   const toggleHud = document.getElementById('toggle-hud');
+  const inputGlmKey = document.getElementById('input-glm-key');
+  const inputGlmModel = document.getElementById('input-glm-model');
+  const btnSaveAiSettings = document.getElementById('btn-save-ai-settings');
+  const nanoStatusBadge = document.getElementById('nano-status-badge');
+  const inputFeishuWebhook = document.getElementById('input-feishu-webhook');
+  const inputFeishuAppId = document.getElementById('input-feishu-appid');
+  const inputFeishuSecret = document.getElementById('input-feishu-appsecret');
+  const inputFeishuReceiver = document.getElementById('input-feishu-receiver');
+  const btnSaveFeishuSettings = document.getElementById('btn-save-feishu-settings');
   const toast = document.getElementById('pt-toast');
   const toastMsg = document.getElementById('toast-msg');
 
   // SVG Ring Circumference: 2 * PI * 34 = 213.628
   const CIRCUMFERENCE = 213.63;
 
+  function escapeHtml(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function showToast(msg) {
     toastMsg.textContent = msg;
     toast.style.display = 'block';
     setTimeout(() => {
       toast.style.display = 'none';
-    }, 2200);
+    }, 2500);
   }
 
   async function copyToClipboard(text) {
@@ -153,31 +173,38 @@ document.addEventListener('DOMContentLoaded', () => {
     papers.forEach(p => {
       const card = document.createElement('div');
       card.className = 'pt-paper-card';
-      const sourceClass = p.source === 'alphaxiv' ? 'pt-source-alphaxiv' : 'pt-source-arxiv';
-      const sourceName = p.source === 'alphaxiv' ? 'alphaXiv' : 'arXiv';
+      const sourceClass = p.source === 'alphaxiv' ? 'pt-source-alphaxiv' : (p.source === 'blog' ? 'pt-source-blog' : 'pt-source-arxiv');
+      const sourceName = p.source === 'alphaxiv' ? 'alphaXiv' : (p.source === 'blog' ? 'Blog' : 'arXiv');
       const depthBadgeHtml = getDepthBadge(p.todaySeconds || 0);
+
+      const safeId = escapeHtml(p.id);
+      const safeTitle = escapeHtml(p.title);
+      const safeAuthors = p.authors ? escapeHtml(p.authors) : '';
+      const safeUrl = p.url && (p.url.startsWith('https://') || p.url.startsWith('http://'))
+        ? encodeURI(p.url)
+        : `https://arxiv.org/abs/${encodeURIComponent(p.id)}`;
 
       card.innerHTML = `
         <div class="pt-card-top">
           <div class="pt-card-meta-left">
             <span class="pt-source-badge ${sourceClass}">${sourceName}</span>
-            <a href="${p.url || `https://arxiv.org/abs/${p.id}`}" target="_blank" class="pt-paper-id-link">
-              ${p.id}
+            <a href="${safeUrl}" target="_blank" class="pt-paper-id-link">
+              ${safeId}
             </a>
           </div>
           <div class="pt-card-actions">
-            <button class="pt-btn-card-action pt-btn-copy-link" data-id="${p.id}" title="复制 Markdown 链接">
+            <button class="pt-btn-card-action pt-btn-copy-link" data-id="${safeId}" title="复制 Markdown 链接">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
-            <button class="pt-btn-card-action pt-btn-card-delete" data-id="${p.id}" title="从今日移除此记录">✕</button>
+            <button class="pt-btn-card-action pt-btn-card-delete" data-id="${safeId}" title="从今日移除此记录">✕</button>
           </div>
         </div>
 
-        <a href="${p.url || `https://arxiv.org/abs/${p.id}`}" target="_blank" class="pt-paper-title" title="${p.title}">
-          ${p.title}
+        <a href="${safeUrl}" target="_blank" class="pt-paper-title" title="${safeTitle}">
+          ${safeTitle}
         </a>
 
-        ${p.authors ? `<div class="pt-paper-authors">${p.authors}</div>` : ''}
+        ${safeAuthors ? `<div class="pt-paper-authors">${safeAuthors}</div>` : ''}
 
         <div class="pt-card-footer">
           <div class="pt-reading-stat">
@@ -245,6 +272,24 @@ document.addEventListener('DOMContentLoaded', () => {
           btn.classList.toggle('active', parseInt(btn.dataset.goal, 10) === res.settings.dailyGoal);
         });
         toggleHud.checked = res.settings.showFloatingWidget !== false;
+        if (inputGlmKey && res.settings.glmApiKey !== undefined) {
+          inputGlmKey.value = res.settings.glmApiKey;
+        }
+        if (inputGlmModel && res.settings.glmModel) {
+          inputGlmModel.value = res.settings.glmModel;
+        }
+        if (inputFeishuWebhook && res.settings.feishuWebhook !== undefined) {
+          inputFeishuWebhook.value = res.settings.feishuWebhook;
+        }
+        if (inputFeishuAppId && res.settings.feishuAppId !== undefined) {
+          inputFeishuAppId.value = res.settings.feishuAppId;
+        }
+        if (inputFeishuSecret && res.settings.feishuAppSecret !== undefined) {
+          inputFeishuSecret.value = res.settings.feishuAppSecret;
+        }
+        if (inputFeishuReceiver && res.settings.feishuReceiverId !== undefined) {
+          inputFeishuReceiver.value = res.settings.feishuReceiverId;
+        }
       }
     });
   }
@@ -332,6 +377,109 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Save AI Settings (GLM Key & Model)
+  if (btnSaveAiSettings) {
+    btnSaveAiSettings.addEventListener('click', () => {
+      const key = inputGlmKey ? inputGlmKey.value.trim() : '';
+      const model = (inputGlmModel && inputGlmModel.value.trim()) || 'glm-4-flash';
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_SETTINGS',
+        payload: { glmApiKey: key, glmModel: model }
+      }, (res) => {
+        if (chrome.runtime.lastError || !res || !res.success) {
+          showToast('保存设置失败');
+        } else {
+          showToast('✓ AI 设置已保存');
+        }
+      });
+    });
+  }
+
+  // Save Feishu Settings (Webhook, App ID, App Secret, Receiver)
+  if (btnSaveFeishuSettings) {
+    btnSaveFeishuSettings.addEventListener('click', () => {
+      const webhook = inputFeishuWebhook ? inputFeishuWebhook.value.trim() : '';
+      const appId = inputFeishuAppId ? inputFeishuAppId.value.trim() : '';
+      const secret = inputFeishuSecret ? inputFeishuSecret.value.trim() : '';
+      const receiver = inputFeishuReceiver ? inputFeishuReceiver.value.trim() : '';
+
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_SETTINGS',
+        payload: {
+          feishuWebhook: webhook,
+          feishuAppId: appId,
+          feishuAppSecret: secret,
+          feishuReceiverId: receiver
+        }
+      }, (res) => {
+        if (chrome.runtime.lastError || !res || !res.success) {
+          showToast('保存飞书设置失败');
+        } else {
+          showToast('✓ 飞书设置已保存');
+        }
+      });
+    });
+  }
+
+  // Send Today Reading List to Feishu Button
+  if (btnSendFeishu) {
+    btnSendFeishu.addEventListener('click', () => {
+      if (!todayData || !todayData.papers || todayData.papers.length === 0) {
+        showToast('今日暂无已读论文记录可同步');
+        return;
+      }
+
+      const originalHtml = btnSendFeishu.innerHTML;
+      btnSendFeishu.disabled = true;
+      btnSendFeishu.style.opacity = '0.7';
+      btnSendFeishu.innerHTML = `<span>发送中...</span>`;
+
+      chrome.runtime.sendMessage({ type: 'SEND_TO_FEISHU' }, (res) => {
+        btnSendFeishu.disabled = false;
+        btnSendFeishu.style.opacity = '1';
+        btnSendFeishu.innerHTML = originalHtml;
+
+        if (chrome.runtime.lastError) {
+          showToast(`发送失败: ${chrome.runtime.lastError.message}`);
+          return;
+        }
+
+        if (res && res.success) {
+          showToast(res.message || '🎉 已成功同步到飞书！');
+        } else if (res && res.reason === 'NOT_CONFIGURED') {
+          showToast('请先配置飞书 Webhook 或应用凭据');
+          if (settingsDrawer) {
+            settingsDrawer.style.display = 'flex';
+            if (inputFeishuWebhook) inputFeishuWebhook.focus();
+          }
+        } else {
+          showToast(res?.error || '飞书发送失败，请检查配置');
+        }
+      });
+    });
+  }
+
+  // Check Chrome Built-in AI (Gemini Nano) availability
+  async function checkNanoAvailability() {
+    if (!nanoStatusBadge) return;
+    try {
+      const aiObj = window.ai || (typeof ai !== 'undefined' ? ai : null);
+      const modelFactory = aiObj?.languageModel || aiObj?.assistant;
+      if (modelFactory) {
+        const cap = await modelFactory.capabilities();
+        if (cap && (cap.available === 'readily' || cap.available === 'yes')) {
+          nanoStatusBadge.textContent = '⚡ Nano 就绪';
+          nanoStatusBadge.classList.add('pt-nano-ready');
+          return;
+        } else if (cap && cap.available === 'after-download') {
+          nanoStatusBadge.textContent = '⏳ Nano 待下载';
+          return;
+        }
+      }
+    } catch (e) {}
+    nanoStatusBadge.textContent = '☁️ 依赖 GLM';
+  }
+
   // Confetti Particle System
   function triggerConfetti() {
     const canvas = document.getElementById('confetti-canvas');
@@ -391,4 +539,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial load
   loadTodayData();
+  checkNanoAvailability();
 });

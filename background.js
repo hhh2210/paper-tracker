@@ -8,7 +8,13 @@ const DEFAULT_SETTINGS = {
   dailyGoal: 3, // Target papers per day
   minSecondsToCount: 30, // Minimum seconds on a paper to count towards daily total
   showFloatingWidget: true,
-  idleTimeoutSeconds: 120 // Pause tracking after 2 minutes of inactivity
+  idleTimeoutSeconds: 120, // Pause tracking after 2 minutes of inactivity
+  glmApiKey: '',
+  glmModel: 'glm-4-flash',
+  feishuWebhook: '',
+  feishuAppId: 'cli_a926b95fa9f8dbd1',
+  feishuAppSecret: '',
+  feishuReceiverId: 'ou_162e0eaf2ed84e4421c57d0daf9de348'
 };
 
 // Storage Mutex Queue to prevent race conditions during concurrent tab updates
@@ -214,7 +220,13 @@ async function handlePaperHeartbeat(payload) {
     if (authors && authors !== 'Unknown Authors') {
       papers[paperId].authors = authors;
     }
-    if (url) papers[paperId].url = url;
+    if (url) {
+      const isExistingCanonical = papers[paperId].url &&
+        (papers[paperId].url.includes('arxiv.org') || papers[paperId].url.includes('alphaxiv.org'));
+      if (!isExistingCanonical) {
+        papers[paperId].url = url;
+      }
+    }
 
     papers[paperId].lastSeen = now;
     papers[paperId].totalSeconds = (papers[paperId].totalSeconds || 0) + safeDelta;
@@ -328,11 +340,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           };
         }).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
 
+        const isExtensionPage = !sender.tab && sender.id === chrome.runtime.id;
+        const safeSettings = isExtensionPage ? settings : { ...settings };
+        if (!isExtensionPage) {
+          delete safeSettings.glmApiKey;
+          delete safeSettings.feishuAppSecret;
+        }
+
         sendResponse({
           success: true,
           today,
           stats,
-          settings,
+          settings: safeSettings,
           streak,
           papers: todayPapers
         });
@@ -355,7 +374,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (streak.lastActiveDate && streak.lastActiveDate !== today && streak.lastActiveDate !== yesterday) {
           streak.currentStreak = 0;
         }
-        sendResponse({ success: true, ...data, streak });
+
+        const isExtensionPage = !sender.tab && sender.id === chrome.runtime.id;
+        const safeSettings = isExtensionPage ? (data.settings || DEFAULT_SETTINGS) : { ...(data.settings || DEFAULT_SETTINGS) };
+        if (!isExtensionPage) {
+          delete safeSettings.glmApiKey;
+          delete safeSettings.feishuAppSecret;
+        }
+
+        sendResponse({ success: true, ...data, settings: safeSettings, streak });
       } catch (err) {
         console.error('[PaperTracker] GET_ALL_DATA error:', err);
         sendResponse({ success: false, error: err.message });
@@ -418,9 +445,353 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'ANALYZE_WITH_GLM') {
+    (async () => {
+      try {
+        const result = await analyzePageWithGlm(message.payload || {});
+        sendResponse(result);
+      } catch (err) {
+        console.error('[PaperTracker] ANALYZE_WITH_GLM handler error:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'SEND_TO_FEISHU') {
+    (async () => {
+      try {
+        const result = await sendReadingListToFeishu();
+        sendResponse(result);
+      } catch (err) {
+        console.error('[PaperTracker] SEND_TO_FEISHU handler error:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   sendResponse({ success: false, error: `Unknown message type: ${message.type}` });
   return false;
 });
+
+// Helper: Extract JSON object from LLM response text with balanced brace scanning (ReDoS immune)
+function extractJsonObject(str) {
+  if (!str || typeof str !== 'string') return null;
+
+  // 1. Try markdown code block extraction
+  const codeBlockMatch = str.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch (e) {}
+  }
+
+  // 2. Direct parse attempt
+  try {
+    return JSON.parse(str.trim());
+  } catch (e) {}
+
+  // 3. Balanced brace scanner (handles trailing commentary and nested braces)
+  const startIdx = str.indexOf('{');
+  if (startIdx === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIdx; i < str.length; i++) {
+    const char = str[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (char === '{') depth++;
+      else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          const candidate = str.slice(startIdx, i + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch (err) {
+            return null;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// Helper: Build a beautiful Feishu interactive card
+function buildFeishuCard({ papers, stats, streak, today }) {
+  const count = papers.length;
+  const totalMins = Math.round((stats.totalSeconds || 0) / 60);
+  const streakDays = streak.currentStreak || (count > 0 ? 1 : 0);
+
+  let elements = [
+    {
+      tag: 'div',
+      text: {
+        tag: 'lark_md',
+        content: `🔥 **连续打卡 ${streakDays} 天** · 今日阅读 **${count}** 篇 · 专注时长 **${totalMins} 分钟**`
+      }
+    },
+    { tag: 'hr' }
+  ];
+
+  papers.forEach((p, idx) => {
+    const depthStr = (p.todaySeconds || 0) < 120 ? '⚡ 扫读' : (p.todaySeconds || 0) < 600 ? '📖 细读' : '🧠 精读';
+    const durationMins = Math.max(1, Math.round((p.todaySeconds || 0) / 60));
+    const paperUrl = p.url || `https://arxiv.org/abs/${p.id}`;
+    const sourceBadge = p.source === 'alphaxiv' ? 'alphaXiv' : (p.source === 'blog' ? 'Blog' : 'arXiv');
+
+    let paperText = `**${idx + 1}. [${p.title}](${paperUrl})**\n`;
+    paperText += `• 来源: \`${sourceBadge}\` (${p.id}) · 深度: **${depthStr}** (${durationMins} 分钟)`;
+    if (p.authors) {
+      paperText += `\n• 作者: ${p.authors.slice(0, 80)}${p.authors.length > 80 ? '...' : ''}`;
+    }
+
+    elements.push({
+      tag: 'div',
+      text: {
+        tag: 'lark_md',
+        content: paperText
+      }
+    });
+  });
+
+  elements.push({ tag: 'hr' });
+  elements.push({
+    tag: 'note',
+    elements: [
+      {
+        tag: 'plain_text',
+        content: `PaperTracker 自动聚合 · 日期: ${today}`
+      }
+    ]
+  });
+
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: {
+        tag: 'plain_text',
+        content: `📄 今日论文阅读清单 · ${today}`
+      },
+      template: count >= (stats.goal || 3) ? 'turquoise' : 'blue'
+    },
+    elements: elements
+  };
+}
+
+// Send reading digest to Feishu via Webhook or Bot API
+async function sendReadingListToFeishu() {
+  await flushActivePdfSession();
+  const today = getTodayDateStr();
+  const data = await getStorageData(['papers', 'daily_stats', 'streak', 'settings']);
+  const stats = data.daily_stats?.[today] || { date: today, paperIds: [], totalSeconds: 0, goal: 3 };
+  const streak = data.streak || { currentStreak: 0, bestStreak: 0, lastActiveDate: null };
+  const settings = data.settings || DEFAULT_SETTINGS;
+  const papersMap = data.papers || {};
+
+  const todayPapers = (stats.paperIds || []).map(id => {
+    const p = papersMap[id] || {};
+    return {
+      ...p,
+      todaySeconds: p.history?.[today] || 0
+    };
+  }).filter(p => (p.todaySeconds || 0) > 0);
+
+  if (todayPapers.length === 0) {
+    return { success: false, error: '今日还没有已读论文记录可发送' };
+  }
+
+  const cardPayload = buildFeishuCard({
+    papers: todayPapers,
+    stats,
+    streak,
+    today
+  });
+
+  // 1. Webhook mode (Group bot or custom webhook)
+  if (settings.feishuWebhook && settings.feishuWebhook.trim()) {
+    const webhookUrl = settings.feishuWebhook.trim();
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        msg_type: 'interactive',
+        card: cardPayload
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`飞书 Webhook 返回 HTTP ${res.status}: ${errText.slice(0, 100)}`);
+    }
+
+    const json = await res.json();
+    if (json.code !== 0 && json.StatusCode !== 0) {
+      throw new Error(json.msg || json.message || '飞书 Webhook 发送失败');
+    }
+
+    return { success: true, mode: 'webhook', message: '已成功推送到飞书群！' };
+  }
+
+  // 2. Bot OpenAPI mode (Direct message to Larry or custom bot)
+  if (settings.feishuAppId && settings.feishuAppSecret) {
+    const appId = settings.feishuAppId.trim();
+    const appSecret = settings.feishuAppSecret.trim();
+    const receiverId = settings.feishuReceiverId?.trim() || 'ou_162e0eaf2ed84e4421c57d0daf9de348';
+
+    // Get tenant_access_token
+    const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret })
+    });
+
+    if (!tokenRes.ok) {
+      throw new Error(`获取飞书 Bot Token 失败: HTTP ${tokenRes.status}`);
+    }
+
+    const tokenJson = await tokenRes.json();
+    if (tokenJson.code !== 0) {
+      throw new Error(`飞书 Token 错误: ${tokenJson.msg || '未知错误'}`);
+    }
+
+    const token = tokenJson.tenant_access_token;
+    const isChat = receiverId.startsWith('oc_');
+    const idType = isChat ? 'chat_id' : 'open_id';
+
+    // Send interactive card
+    const sendRes = await fetch(`https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${idType}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        receive_id: receiverId,
+        msg_type: 'interactive',
+        content: JSON.stringify(cardPayload)
+      })
+    });
+
+    if (!sendRes.ok) {
+      throw new Error(`飞书消息发送失败: HTTP ${sendRes.status}`);
+    }
+
+    const sendJson = await sendRes.json();
+    if (sendJson.code !== 0) {
+      throw new Error(`飞书消息错误: ${sendJson.msg || '未知错误'}`);
+    }
+
+    return { success: true, mode: 'bot', message: '已成功发送到飞书私聊！' };
+  }
+
+  return {
+    success: false,
+    reason: 'NOT_CONFIGURED',
+    error: '未配置飞书推送目标。请在插件设置中填入「飞书 Webhook 地址」或「应用凭据」。'
+  };
+}
+
+// Analyze research blog page using Zhipu GLM API
+async function analyzePageWithGlm({ pageSnippet, url, pageTitle }) {
+  const data = await getStorageData(['settings']);
+  const apiKey = data.settings?.glmApiKey?.trim();
+  const model = data.settings?.glmModel?.trim() || 'glm-4-flash';
+
+  if (!apiKey) {
+    return {
+      success: false,
+      reason: 'NO_API_KEY',
+      error: 'GLM API Key 未配置。请在插件设置中填入 API Key，或启用端侧 Gemini Nano。'
+    };
+  }
+
+  const promptText = `请分析以下网页文本，判断是否属于学术论文、学术研究项目主页（Project Page）、或高质量深度技术/科学研究博客（如 OpenAI Research、Anthropic Research、Distill、BAIR、Hugging Face Research、个人学者研究博客等）。
+如果是，提取其论文/文章标题、作者列表，以及如果页面正文或参考文献中存在对应的 arXiv ID，提取该 ID。
+
+页面标题: ${pageTitle || ''}
+URL: ${url || ''}
+页面正文片段:
+${pageSnippet ? pageSnippet.slice(0, 3000) : ''}
+
+请严格仅输出以下 JSON 格式，禁止包含 Markdown 代码块标记（如 \`\`\`json）：
+{
+  "is_research": true,
+  "title": "论文或博文真实标题",
+  "authors": "作者名字（逗号分隔）",
+  "arxiv_id": "提取到的 arXiv ID 如 2608.24949，没有则填 null",
+  "summary": "一句话核心内容（20字以内）"
+}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+  try {
+    const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'user', content: promptText }
+        ],
+        temperature: 0.1,
+        max_tokens: 350
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`GLM API HTTP ${res.status}: ${errText.slice(0, 100)}`);
+    }
+
+    const json = await res.json();
+    const rawContent = json.choices?.[0]?.message?.content || '';
+    const parsed = extractJsonObject(rawContent);
+
+    if (!parsed) {
+      throw new Error('无法解析 GLM 返回的 JSON 内容');
+    }
+
+    return {
+      success: true,
+      is_research: Boolean(parsed.is_research),
+      title: parsed.title || pageTitle || 'Academic Blog',
+      authors: parsed.authors || 'Research Team',
+      arxiv_id: parsed.arxiv_id || null,
+      summary: parsed.summary || ''
+    };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.error('[PaperTracker] GLM API analysis error:', err);
+    return {
+      success: false,
+      error: err.name === 'AbortError' ? 'GLM API 请求超时 (15s)' : err.message
+    };
+  }
+}
 
 // ============================================================================
 // PDF Tracking Engine (MV3 Standard: Timestamp Diffing via storage.session)

@@ -30,6 +30,13 @@
       </div>
 
       <div class="pt-header-actions">
+        <button id="btn-send-feishu" class="pt-btn-action pt-btn-feishu" title="一键将今日论文清单同步到飞书">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+          <span>同步飞书</span>
+        </button>
         <button id="btn-copy-digest" class="pt-btn-action pt-btn-highlight" title="一键复制今日已读论文 (Markdown)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -115,6 +122,47 @@
           <span class="pt-slider"></span>
         </label>
       </div>
+      <div class="pt-settings-divider"></div>
+      <div class="pt-settings-section-subtitle">
+        <span>🤖 AI 博客追踪 (Nano 优先 / GLM 兜底)</span>
+      </div>
+      <div class="pt-settings-col">
+        <div class="pt-input-label-row">
+          <span class="pt-label">智谱 GLM API Key</span>
+          <span class="pt-nano-badge" id="nano-status-badge">Nano 检测中</span>
+        </div>
+        <input type="password" id="input-glm-key" class="pt-input-text" placeholder="留空则仅使用端侧 Gemini Nano" autocomplete="off">
+      </div>
+      <div class="pt-settings-col">
+        <span class="pt-label">GLM 模型名称</span>
+        <input type="text" id="input-glm-model" class="pt-input-text" placeholder="glm-4-flash / glm-5.3" value="glm-4-flash">
+      </div>
+      <div class="pt-settings-save-row">
+        <button id="btn-save-ai-settings" class="pt-btn-save-settings">保存 AI 设置</button>
+      </div>
+      <div class="pt-settings-divider"></div>
+      <div class="pt-settings-section-subtitle">
+        <span>📮 飞书一键推送设置</span>
+      </div>
+      <div class="pt-settings-col">
+        <span class="pt-label">飞书群 Webhook 地址 (群聊推送推荐)</span>
+        <input type="text" id="input-feishu-webhook" class="pt-input-text" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." autocomplete="off">
+      </div>
+      <div class="pt-settings-col">
+        <span class="pt-label">自建 Bot App ID (可选私聊)</span>
+        <input type="text" id="input-feishu-appid" class="pt-input-text" placeholder="cli_xxx" value="cli_a926b95fa9f8dbd1">
+      </div>
+      <div class="pt-settings-col">
+        <span class="pt-label">自建 Bot App Secret (可选私聊)</span>
+        <input type="password" id="input-feishu-appsecret" class="pt-input-text" placeholder="输入 App Secret 启用单聊私发" autocomplete="off">
+      </div>
+      <div class="pt-settings-col">
+        <span class="pt-label">接收人 Open ID (默认 Larry)</span>
+        <input type="text" id="input-feishu-receiver" class="pt-input-text" placeholder="ou_xxx" value="ou_162e0eaf2ed84e4421c57d0daf9de348">
+      </div>
+      <div class="pt-settings-save-row">
+        <button id="btn-save-feishu-settings" class="pt-btn-save-settings">保存飞书设置</button>
+      </div>
     </div>
 
     <!-- Section Header -->
@@ -128,6 +176,8 @@
         <span class="pt-legend-name">arXiv</span>
         <span class="pt-legend-dot pt-legend-alphaxiv"></span>
         <span class="pt-legend-name">alphaXiv</span>
+        <span class="pt-legend-dot pt-legend-blog"></span>
+        <span class="pt-legend-name">Blog</span>
       </div>
     </div>
 

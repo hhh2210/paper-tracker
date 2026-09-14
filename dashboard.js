@@ -55,6 +55,16 @@ document.addEventListener('DOMContentLoaded', () => {
     return false;
   }
 
+  function escapeHtml(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -153,22 +163,32 @@ document.addEventListener('DOMContentLoaded', () => {
     filtered.forEach(p => {
       const tr = document.createElement('tr');
       const isAlpha = p.source === 'alphaxiv';
+      const isBlog = p.source === 'blog';
+      const srcTagClass = isAlpha ? 'db-src-alphaxiv' : (isBlog ? 'db-src-blog' : 'db-src-arxiv');
+      const srcName = isAlpha ? 'alphaXiv' : (isBlog ? 'Blog' : 'arXiv');
       const lastSeenStr = p.lastSeen ? new Date(p.lastSeen).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+
+      const safeId = escapeHtml(p.id);
+      const safeTitle = escapeHtml(p.title);
+      const safeAuthors = p.authors ? escapeHtml(p.authors) : '';
+      const safeUrl = p.url && (p.url.startsWith('https://') || p.url.startsWith('http://'))
+        ? encodeURI(p.url)
+        : `https://arxiv.org/abs/${encodeURIComponent(p.id)}`;
 
       tr.innerHTML = `
         <td>
-          <span class="db-source-tag ${isAlpha ? 'db-src-alphaxiv' : 'db-src-arxiv'}">
-            ${isAlpha ? 'alphaXiv' : 'arXiv'}
+          <span class="db-source-tag ${srcTagClass}">
+            ${srcName}
           </span>
         </td>
         <td>
-          <span class="db-id-code">${p.id}</span>
+          <span class="db-id-code">${safeId}</span>
         </td>
         <td>
-          <a href="${p.url || `https://arxiv.org/abs/${p.id}`}" target="_blank" class="db-paper-link">
-            ${p.title}
+          <a href="${safeUrl}" target="_blank" class="db-paper-link">
+            ${safeTitle}
           </a>
-          ${p.authors ? `<div class="db-paper-authors">${p.authors}</div>` : ''}
+          ${safeAuthors ? `<div class="db-paper-authors">${safeAuthors}</div>` : ''}
         </td>
         <td>
           <strong>${formatPreciseTime(p.totalSeconds || 0)}</strong>
