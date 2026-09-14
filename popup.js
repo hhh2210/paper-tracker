@@ -26,11 +26,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputGlmModel = document.getElementById('input-glm-model');
   const btnSaveAiSettings = document.getElementById('btn-save-ai-settings');
   const nanoStatusBadge = document.getElementById('nano-status-badge');
+  const bridgeStatusBadge = document.getElementById('bridge-status-badge');
+  const bridgeHintText = document.getElementById('bridge-hint-text');
   const inputFeishuWebhook = document.getElementById('input-feishu-webhook');
   const inputFeishuAppId = document.getElementById('input-feishu-appid');
   const inputFeishuSecret = document.getElementById('input-feishu-appsecret');
   const inputFeishuReceiver = document.getElementById('input-feishu-receiver');
   const btnSaveFeishuSettings = document.getElementById('btn-save-feishu-settings');
+  const btnTestFeishu = document.getElementById('btn-test-feishu');
   const toast = document.getElementById('pt-toast');
   const toastMsg = document.getElementById('toast-msg');
 
@@ -340,6 +343,10 @@ document.addEventListener('DOMContentLoaded', () => {
   btnSettings.addEventListener('click', () => {
     const isHidden = settingsDrawer.style.display === 'none';
     settingsDrawer.style.display = isHidden ? 'flex' : 'none';
+    if (isHidden) {
+      checkBridgeAvailability();
+      checkNanoAvailability();
+    }
   });
 
   btnCloseSettings.addEventListener('click', () => {
@@ -421,42 +428,139 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Helper: Reset Feishu button back to initial state
+  const originalFeishuBtnHtml = btnSendFeishu ? btnSendFeishu.innerHTML : '';
+  let isFeishuSyncing = false;
+
+  function resetFeishuBtn() {
+    if (!btnSendFeishu) return;
+    btnSendFeishu.disabled = false;
+    btnSendFeishu.className = 'pt-btn-action pt-btn-feishu';
+    btnSendFeishu.innerHTML = originalFeishuBtnHtml;
+    isFeishuSyncing = false;
+  }
+
   // Send Today Reading List to Feishu Button
   if (btnSendFeishu) {
     btnSendFeishu.addEventListener('click', () => {
+      if (isFeishuSyncing) return;
+
+      // Check if today has papers
       if (!todayData || !todayData.papers || todayData.papers.length === 0) {
-        showToast('今日暂无已读论文记录可同步');
+        // ADHD tactile feedback: shake button and display empty notice
+        btnSendFeishu.classList.add('pt-btn-warn', 'pt-btn-shake');
+        btnSendFeishu.innerHTML = `
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+          <span>今日暂无记录</span>
+        `;
+        showToast('今日暂无阅读记录：去 arXiv 逛逛，或在设置中点击「测试推送」！');
+        setTimeout(() => {
+          resetFeishuBtn();
+        }, 1800);
         return;
       }
 
-      const originalHtml = btnSendFeishu.innerHTML;
+      // Enter Loading / In-Flight State
+      isFeishuSyncing = true;
       btnSendFeishu.disabled = true;
-      btnSendFeishu.style.opacity = '0.7';
-      btnSendFeishu.innerHTML = `<span>发送中...</span>`;
+      btnSendFeishu.className = 'pt-btn-action pt-btn-feishu pt-btn-loading';
+      btnSendFeishu.innerHTML = `
+        <svg class="pt-spin-loader" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
+        <span>正在同步...</span>
+      `;
 
       chrome.runtime.sendMessage({ type: 'SEND_TO_FEISHU' }, (res) => {
-        btnSendFeishu.disabled = false;
-        btnSendFeishu.style.opacity = '1';
-        btnSendFeishu.innerHTML = originalHtml;
-
         if (chrome.runtime.lastError) {
+          btnSendFeishu.className = 'pt-btn-action pt-btn-feishu pt-btn-error pt-btn-shake';
+          btnSendFeishu.innerHTML = `<span>同步失败</span>`;
           showToast(`发送失败: ${chrome.runtime.lastError.message}`);
+          setTimeout(resetFeishuBtn, 2400);
           return;
         }
 
         if (res && res.success) {
+          btnSendFeishu.className = 'pt-btn-action pt-btn-feishu pt-btn-success';
+          btnSendFeishu.innerHTML = `
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>已同步飞书</span>
+          `;
           showToast(res.message || '🎉 已成功同步到飞书！');
+          if (typeof triggerConfetti === 'function') triggerConfetti();
+          setTimeout(resetFeishuBtn, 2400);
         } else if (res && res.reason === 'NOT_CONFIGURED') {
-          showToast('请先配置飞书 Webhook 或应用凭据');
+          btnSendFeishu.className = 'pt-btn-action pt-btn-feishu pt-btn-warn pt-btn-shake';
+          btnSendFeishu.innerHTML = `<span>需配置飞书</span>`;
+          showToast('未检测到可用推送通道：请启动本地 CLI 或在下方填写 Webhook');
           if (settingsDrawer) {
             settingsDrawer.style.display = 'flex';
             if (inputFeishuWebhook) inputFeishuWebhook.focus();
           }
+          setTimeout(resetFeishuBtn, 2400);
         } else {
+          btnSendFeishu.className = 'pt-btn-action pt-btn-feishu pt-btn-error pt-btn-shake';
+          btnSendFeishu.innerHTML = `<span>同步失败</span>`;
           showToast(res?.error || '飞书发送失败，请检查配置');
+          setTimeout(resetFeishuBtn, 2400);
         }
       });
     });
+  }
+
+  // Test Feishu Push Button (in Settings Drawer)
+  if (btnTestFeishu) {
+    btnTestFeishu.addEventListener('click', () => {
+      const origText = btnTestFeishu.textContent;
+      btnTestFeishu.disabled = true;
+      btnTestFeishu.textContent = '测试中...';
+
+      chrome.runtime.sendMessage({
+        type: 'SEND_TO_FEISHU',
+        payload: { isTest: true }
+      }, (res) => {
+        btnTestFeishu.disabled = false;
+        btnTestFeishu.textContent = origText;
+
+        if (chrome.runtime.lastError) {
+          showToast(`测试失败: ${chrome.runtime.lastError.message}`);
+          return;
+        }
+
+        if (res && res.success) {
+          showToast(res.message || '🎉 飞书测试卡片发送成功！');
+        } else {
+          showToast(res?.error || '测试发送失败，请检查配置');
+        }
+      });
+    });
+  }
+
+  // Check Local Lark CLI Bridge (127.0.0.1:18288) availability
+  async function checkBridgeAvailability() {
+    if (!bridgeStatusBadge) return;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 800);
+      const res = await fetch('http://127.0.0.1:18288/ping', { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok) {
+          bridgeStatusBadge.textContent = '🟢 CLI 就绪';
+          bridgeStatusBadge.classList.add('pt-nano-ready');
+          if (bridgeHintText) {
+            bridgeHintText.textContent = '已连接本地 lark-cli 桥接 (127.0.0.1:18288)：点击「同步飞书」秒级直达私聊！';
+            bridgeHintText.style.color = '#34d399';
+          }
+          return;
+        }
+      }
+    } catch (e) {}
+    bridgeStatusBadge.textContent = '⚪ CLI 未运行';
+    bridgeStatusBadge.classList.remove('pt-nano-ready');
+    if (bridgeHintText) {
+      bridgeHintText.textContent = '本地 CLI 桥接未运行：可后台执行 python3 scripts/lark_bridge.py，或在下方填入群 Webhook。';
+      bridgeHintText.style.color = 'var(--text-muted)';
+    }
   }
 
   // Check Chrome Built-in AI (Gemini Nano) availability
@@ -540,4 +644,5 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial load
   loadTodayData();
   checkNanoAvailability();
+  checkBridgeAvailability();
 });

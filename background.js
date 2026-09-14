@@ -461,7 +461,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SEND_TO_FEISHU') {
     (async () => {
       try {
-        const result = await sendReadingListToFeishu();
+        const result = await sendReadingListToFeishu(message.payload || {});
         sendResponse(result);
       } catch (err) {
         console.error('[PaperTracker] SEND_TO_FEISHU handler error:', err);
@@ -595,8 +595,41 @@ function buildFeishuCard({ papers, stats, streak, today }) {
   };
 }
 
-// Send reading digest to Feishu via Webhook or Bot API
-async function sendReadingListToFeishu() {
+// Helper: Build a test card for connectivity verification
+function buildFeishuTestCard({ today }) {
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: {
+        tag: 'plain_text',
+        content: `🧪 PaperTracker · 飞书推送联调成功`
+      },
+      template: 'turquoise'
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content: `🎉 **飞书推送通道连接成功！**\n• 当你在 arXiv 或学术博客阅读论文时，PaperTracker 将自动监督阅读时长。\n• 点击 Popup 顶部的「同步飞书」按钮，即可秒级生成精美的阅读简报推送！`
+        }
+      },
+      { tag: 'hr' },
+      {
+        tag: 'note',
+        elements: [
+          {
+            tag: 'plain_text',
+            content: `测试时间: ${today} · PaperTracker 自动测试`
+          }
+        ]
+      }
+    ]
+  };
+}
+
+// Send reading digest to Feishu via Local CLI Bridge, Webhook, or Bot API
+async function sendReadingListToFeishu(payload = {}) {
   await flushActivePdfSession();
   const today = getTodayDateStr();
   const data = await getStorageData(['papers', 'daily_stats', 'streak', 'settings']);
@@ -604,6 +637,8 @@ async function sendReadingListToFeishu() {
   const streak = data.streak || { currentStreak: 0, bestStreak: 0, lastActiveDate: null };
   const settings = data.settings || DEFAULT_SETTINGS;
   const papersMap = data.papers || {};
+
+  const isTest = Boolean(payload && payload.isTest);
 
   const todayPapers = (stats.paperIds || []).map(id => {
     const p = papersMap[id] || {};
@@ -613,18 +648,51 @@ async function sendReadingListToFeishu() {
     };
   }).filter(p => (p.todaySeconds || 0) > 0);
 
-  if (todayPapers.length === 0) {
-    return { success: false, error: '今日还没有已读论文记录可发送' };
+  if (!isTest && todayPapers.length === 0) {
+    return { success: false, reason: 'EMPTY_PAPERS', error: '今日暂无已读论文记录可同步' };
   }
 
-  const cardPayload = buildFeishuCard({
-    papers: todayPapers,
-    stats,
-    streak,
-    today
-  });
+  const cardPayload = isTest
+    ? buildFeishuTestCard({ today })
+    : buildFeishuCard({
+        papers: todayPapers,
+        stats,
+        streak,
+        today
+      });
 
-  // 1. Webhook mode (Group bot or custom webhook)
+  const receiverId = settings.feishuReceiverId?.trim() || 'ou_162e0eaf2ed84e4421c57d0daf9de348';
+
+  // 1. Tier 1 Priority: Try Local Lark CLI Bridge (http://127.0.0.1:18288)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const bridgeRes = await fetch('http://127.0.0.1:18288/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        card: cardPayload,
+        receiverId: receiverId
+      }),
+      signal: controller.signal
+    }).catch(() => null);
+    clearTimeout(timeoutId);
+
+    if (bridgeRes && bridgeRes.ok) {
+      const json = await bridgeRes.json().catch(() => null);
+      if (json && json.ok) {
+        return {
+          success: true,
+          mode: 'local_cli',
+          message: isTest ? '🎉 测试卡片已通过本地飞书机器人送达！' : '🎉 已通过本地飞书机器人推送到私聊！'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[PaperTracker] Local bridge skipped:', err);
+  }
+
+  // 2. Tier 2: Webhook mode (Group bot or custom webhook)
   if (settings.feishuWebhook && settings.feishuWebhook.trim()) {
     const webhookUrl = settings.feishuWebhook.trim();
     const res = await fetch(webhookUrl, {
@@ -646,14 +714,17 @@ async function sendReadingListToFeishu() {
       throw new Error(json.msg || json.message || '飞书 Webhook 发送失败');
     }
 
-    return { success: true, mode: 'webhook', message: '已成功推送到飞书群！' };
+    return {
+      success: true,
+      mode: 'webhook',
+      message: isTest ? '🎉 测试卡片已推送到飞书群！' : '已成功推送到飞书群！'
+    };
   }
 
-  // 2. Bot OpenAPI mode (Direct message to Larry or custom bot)
+  // 3. Tier 3: Bot OpenAPI mode (Direct message with App Secret)
   if (settings.feishuAppId && settings.feishuAppSecret) {
     const appId = settings.feishuAppId.trim();
     const appSecret = settings.feishuAppSecret.trim();
-    const receiverId = settings.feishuReceiverId?.trim() || 'ou_162e0eaf2ed84e4421c57d0daf9de348';
 
     // Get tenant_access_token
     const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
@@ -698,13 +769,17 @@ async function sendReadingListToFeishu() {
       throw new Error(`飞书消息错误: ${sendJson.msg || '未知错误'}`);
     }
 
-    return { success: true, mode: 'bot', message: '已成功发送到飞书私聊！' };
+    return {
+      success: true,
+      mode: 'bot',
+      message: isTest ? '🎉 测试卡片已发送到飞书私聊！' : '已成功发送到飞书私聊！'
+    };
   }
 
   return {
     success: false,
     reason: 'NOT_CONFIGURED',
-    error: '未配置飞书推送目标。请在插件设置中填入「飞书 Webhook 地址」或「应用凭据」。'
+    error: '未检测到可用推送通道：可启动本地 CLI 桥接 (scripts/lark_bridge.py) 或在设置中配置飞书 Webhook / App Secret。'
   };
 }
 

@@ -60,7 +60,9 @@
     "https://export.arxiv.org/*",
     "https://open.bigmodel.cn/*",
     "https://open.feishu.cn/*",
-    "https://open.larksuite.com/*"
+    "https://open.larksuite.com/*",
+    "http://127.0.0.1:*/*",
+    "http://localhost:*/*"
   ],
   "options_ui": {
     "page": "dashboard.html",

@@ -143,6 +143,10 @@
       <div class="pt-settings-divider"></div>
       <div class="pt-settings-section-subtitle">
         <span>📮 飞书一键推送设置</span>
+        <span class="pt-nano-badge" id="bridge-status-badge">CLI 检测中...</span>
+      </div>
+      <div class="pt-settings-hint" id="bridge-hint-text">
+        本地 CLI 桥接 (127.0.0.1:18288)：免填 Secret，直通本机已认证机器人。
       </div>
       <div class="pt-settings-col">
         <span class="pt-label">飞书群 Webhook 地址 (群聊推送推荐)</span>
@@ -154,13 +158,14 @@
       </div>
       <div class="pt-settings-col">
         <span class="pt-label">自建 Bot App Secret (可选私聊)</span>
-        <input type="password" id="input-feishu-appsecret" class="pt-input-text" placeholder="输入 App Secret 启用单聊私发" autocomplete="off">
+        <input type="password" id="input-feishu-appsecret" class="pt-input-text" placeholder="若未运行本地 CLI，输入 Secret 启用私聊" autocomplete="off">
       </div>
       <div class="pt-settings-col">
         <span class="pt-label">接收人 Open ID (默认 Larry)</span>
         <input type="text" id="input-feishu-receiver" class="pt-input-text" placeholder="ou_xxx" value="ou_162e0eaf2ed84e4421c57d0daf9de348">
       </div>
-      <div class="pt-settings-save-row">
+      <div class="pt-settings-save-row" style="gap: 8px;">
+        <button id="btn-test-feishu" class="pt-btn-action pt-btn-test-feishu" title="发送一条测试卡片到飞书验证连接">🧪 测试推送</button>
         <button id="btn-save-feishu-settings" class="pt-btn-save-settings">保存飞书设置</button>
       </div>
     </div>
